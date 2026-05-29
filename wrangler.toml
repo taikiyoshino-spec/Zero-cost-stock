@@ -1,0 +1,14 @@
+name = "zero-cost-stock"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "zero-cost-stock-db"
+database_id = "c6b76402-661d-4d94-8356-36802d91befd"

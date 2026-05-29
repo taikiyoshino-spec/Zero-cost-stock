@@ -1,0 +1,15 @@
+{
+  "name": "zero-cost-stock",
+  "version": "1.0.0",
+  "description": "恩株管理ツール - Cloudflare Workers + D1",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create zero-cost-stock-db",
+    "db:init": "wrangler d1 execute zero-cost-stock-db --file=schema.sql",
+    "db:init:local": "wrangler d1 execute zero-cost-stock-db --local --file=schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.95.0"
+  }
+}

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>恩株管理ツール（NISA用）</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ヘッダー -->
+  <header class="app-header">
+    <h1>恩株管理ツール<span class="title-sub">（NISA用）</span></h1>
+    <div class="header-actions">
+      <button class="btn-outline" id="refreshAllBtn" title="全銘柄のデータを更新">
+        <span class="icon">↻</span>
+        <span class="label">更新</span>
+      </button>
+      <button class="btn-primary" id="addBtn">
+        <span class="icon">＋</span>
+        <span class="label">銘柄追加</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- タブナビ -->
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="purchase">購入検討</button>
+    <button class="tab-btn" data-tab="waiting">恩株待ち</button>
+  </nav>
+
+  <!-- 最終更新時刻 -->
+  <div class="sub-bar">
+    <span id="lastUpdated" class="last-updated"></span>
+  </div>
+
+  <!-- ══ 購入検討タブ ══ -->
+  <div id="tab-purchase" class="tab-panel">
+    <main class="main-content">
+      <div class="table-wrapper">
+        <table id="stockTable">
+          <thead>
+            <tr>
+              <th class="th-code">コード</th>
+              <th class="th-name">会社名</th>
+              <th class="th-num">恩株差</th>
+              <th class="th-num">購入額</th>
+              <th class="th-num">終値</th>
+              <th class="th-num">購入数</th>
+              <th class="th-num">配当額</th>
+              <th class="th-num">利回り</th>
+              <th class="th-num desktop-only input-col">目標株数</th>
+              <th class="th-num desktop-only input-col">恩株数</th>
+              <th class="th-num desktop-only input-col">現在株数</th>
+              <th class="th-num desktop-only input-col">均価</th>
+              <th class="th-num">損益</th>
+              <th class="th-action">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- ══ 恩株待ちタブ ══ -->
+  <div id="tab-waiting" class="tab-panel hidden">
+    <main class="main-content">
+      <div class="table-wrapper">
+        <table id="waitingTable">
+          <thead>
+            <tr>
+              <th class="th-code">コード</th>
+              <th class="th-name">会社名</th>
+              <th class="th-num">恩株差</th>
+              <th class="th-num">終値</th>
+              <th class="th-num">売値</th>
+              <th class="th-num">現売値</th>
+              <th class="th-num">現配当</th>
+              <th class="th-num">後配当</th>
+              <th class="th-num">損益</th>
+              <th class="th-num desktop-only">売値額</th>
+              <th class="th-num desktop-only">利回り</th>
+              <th class="th-num desktop-only input-col">現在株数</th>
+              <th class="th-num desktop-only input-col">恩株数</th>
+              <th class="th-num desktop-only input-col">均価</th>
+              <th class="th-action">操作</th>
+            </tr>
+          </thead>
+          <tbody id="waitingTableBody"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- ══ 購入検討 モーダル ══ -->
+  <div class="modal-overlay" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-box">
+      <h2 class="modal-title" id="modalTitle">銘柄追加</h2>
+      <form id="stockForm" novalidate>
+        <input type="hidden" id="fieldId">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="fieldCode">証券コード <span class="required">*</span></label>
+            <input type="text" id="fieldCode" maxlength="4" pattern="\d{4}"
+                   placeholder="例: 7203" inputmode="numeric" required>
+            <span class="field-hint">4桁の日本株コード</span>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div class="form-group">
+            <label for="fieldTarget">目標保有数 <span class="required">*</span></label>
+            <input type="number" id="fieldTarget" min="100" step="100" placeholder="例: 200" required>
+          </div>
+          <div class="form-group">
+            <label for="fieldOnKabu">恩株数 <span class="required">*</span></label>
+            <input type="number" id="fieldOnKabu" min="0" step="100" placeholder="例: 100" required>
+            <span class="field-hint">恩株後に保有する株数</span>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div class="form-group">
+            <label for="fieldCurrent">現在保有数</label>
+            <input type="number" id="fieldCurrent" min="0" step="100" value="0">
+          </div>
+          <div class="form-group">
+            <label for="fieldAvgPrice">取得平均額 <span class="cond-label">（現在株数が0以上の場合）</span></label>
+            <input type="number" id="fieldAvgPrice" min="0" value="0" step="0.01" disabled>
+          </div>
+        </div>
+        <div class="calc-preview" id="calcPreview" hidden>
+          <div class="calc-preview-title">計算プレビュー（終値は最新データ使用時）</div>
+          <div class="calc-preview-grid" id="calcPreviewGrid"></div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-cancel" id="cancelBtn">キャンセル</button>
+          <button type="submit" class="btn-save" id="saveBtn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ══ 恩株待ち モーダル ══ -->
+  <div class="modal-overlay" id="waitingModal" role="dialog" aria-modal="true" aria-labelledby="waitingModalTitle">
+    <div class="modal-box">
+      <h2 class="modal-title" id="waitingModalTitle">恩株待ち 銘柄追加</h2>
+      <form id="waitingForm" novalidate>
+        <input type="hidden" id="wFieldId">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="wFieldCode">証券コード <span class="required">*</span></label>
+            <input type="text" id="wFieldCode" maxlength="4" pattern="\d{4}"
+                   placeholder="例: 9979" inputmode="numeric" required>
+            <span class="field-hint">4桁の日本株コード</span>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div class="form-group">
+            <label for="wFieldCurrent">現在保有数 <span class="required">*</span></label>
+            <input type="number" id="wFieldCurrent" min="100" step="100" placeholder="例: 200" required>
+          </div>
+          <div class="form-group">
+            <label for="wFieldOnKabu">恩株数 <span class="required">*</span></label>
+            <input type="number" id="wFieldOnKabu" min="0" step="100" placeholder="例: 100" required>
+            <span class="field-hint">恩株後に保有する株数</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="wFieldAvgPrice">取得平均額 <span class="required">*</span></label>
+            <input type="number" id="wFieldAvgPrice" min="0" step="0.01" placeholder="例: 1200" required>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-cancel" id="wCancelBtn">キャンセル</button>
+          <button type="submit" class="btn-save" id="wSaveBtn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 詳細ドロワー（モバイル用） -->
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <div class="detail-drawer" id="detailDrawer">
+    <div class="drawer-header">
+      <span id="drawerTitle"></span>
+      <button class="drawer-close" id="drawerClose">×</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
