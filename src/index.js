@@ -343,6 +343,48 @@ async function handleApi(request, env, path) {
     return json({ success: true });
   }
 
+  // ── 恩株化テーブル CRUD ───────────────────────────────────────────────────────
+
+  // GET /api/achieved-stocks
+  if (path === '/api/achieved-stocks' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM achieved_stocks ORDER BY created_at ASC'
+    ).all();
+    return json(results);
+  }
+
+  // POST /api/achieved-stocks
+  if (path === '/api/achieved-stocks' && method === 'POST') {
+    const { code, current_shares } = await request.json();
+    if (!code || current_shares == null) return err('証券コード・保有数は必須です');
+    if (!/^\d{4}$/.test(String(code))) return err('証券コードは4桁の数字で入力してください');
+    await env.DB.prepare(`
+      INSERT INTO achieved_stocks (code, current_shares)
+      VALUES (?, ?)
+      ON CONFLICT(code) DO UPDATE SET
+        current_shares = excluded.current_shares,
+        updated_at     = datetime('now')
+    `).bind(code, current_shares).run();
+    return json({ success: true });
+  }
+
+  // PUT /api/achieved-stocks/:id
+  const achUpdateMatch = path.match(/^\/api\/achieved-stocks\/(\d+)$/);
+  if (achUpdateMatch && method === 'PUT') {
+    const { current_shares } = await request.json();
+    await env.DB.prepare(
+      'UPDATE achieved_stocks SET current_shares = ?, updated_at = datetime(\'now\') WHERE id = ?'
+    ).bind(current_shares, achUpdateMatch[1]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/achieved-stocks/:id
+  const achDeleteMatch = path.match(/^\/api\/achieved-stocks\/(\d+)$/);
+  if (achDeleteMatch && method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM achieved_stocks WHERE id = ?').bind(achDeleteMatch[1]).run();
+    return json({ success: true });
+  }
+
   // GET /api/stock-data/:code（スクレイピング）
   const scrapeMatch = path.match(/^\/api\/stock-data\/(\d{4})$/);
   if (scrapeMatch && method === 'GET') {

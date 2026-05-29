@@ -117,11 +117,12 @@ function calculateWaiting(stock, scraped) {
 
 // ─── アプリ状態 ───────────────────────────────────────────────────────────────
 
-let currentTab    = 'purchase';
-let stocks        = [];
-let waitingStocks = [];
-let scraped       = {};
-const loading     = new Set();
+let currentTab      = 'purchase';
+let stocks          = [];
+let waitingStocks   = [];
+let achievedStocks  = [];
+let scraped         = {};
+const loading       = new Set();
 
 // ─── DOM 参照 ──────────────────────────────────────────────────────────────────
 
@@ -135,6 +136,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
     $('tab-purchase').classList.toggle('hidden', currentTab !== 'purchase');
     $('tab-waiting').classList.toggle('hidden',  currentTab !== 'waiting');
+    $('tab-achieved').classList.toggle('hidden', currentTab !== 'achieved');
   });
 });
 
@@ -160,7 +162,7 @@ async function fetchScraped(code, force = false) {
   }
 }
 
-function renderBoth() { renderPurchase(); renderWaiting(); }
+function renderBoth() { renderPurchase(); renderWaiting(); renderAchieved(); }
 
 // ─── 購入検討 描画 ────────────────────────────────────────────────────────────
 
@@ -195,6 +197,7 @@ function renderPurchase() {
       <td class="action-cell"><div class="action-buttons">
         <button class="btn-icon detail-btn" data-code="${stock.code}" title="詳細">👁</button>
         <button class="btn-icon edit-btn"   data-id="${stock.id}"    title="編集">✏️</button>
+        <button class="btn-icon move-btn"   data-id="${stock.id}" data-code="${stock.code}" title="恩株待ちに移行">↗</button>
         <button class="btn-icon danger del-btn"  data-id="${stock.id}"    title="削除">🗑️</button>
         <button class="btn-icon ref-btn"    data-code="${stock.code}" title="更新">↻</button>
       </div></td>`;
@@ -243,15 +246,71 @@ function renderWaiting() {
   }
 }
 
+// ─── 恩株化 描画 ──────────────────────────────────────────────────────────────
+
+function renderAchieved() {
+  const tbody = $('achievedTableBody');
+  tbody.innerHTML = '';
+
+  const anyLoading = achievedStocks.some(s => loading.has(s.code));
+  const totalAssets = achievedStocks.reduce((sum, s) => {
+    const p = scraped[s.code]?.closingPrice;
+    return p != null ? sum + p * s.current_shares : sum;
+  }, 0);
+  const totalDiv = achievedStocks.reduce((sum, s) => {
+    const d = scraped[s.code]?.dividendPerShare;
+    return d != null ? sum + d * s.current_shares : sum;
+  }, 0);
+  const placeholder = achievedStocks.length === 0 ? '—' : anyLoading ? '読込中…' : null;
+  $('achievedTotalAssets').textContent = placeholder ?? fmtYen(totalAssets);
+  $('achievedTotalDiv').textContent    = placeholder ?? fmtYen(totalDiv);
+
+  if (achievedStocks.length === 0) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8"><span class="empty-icon">📋</span>銘柄が登録されていません。</td></tr>`;
+    return;
+  }
+  for (const stock of achievedStocks) {
+    const s      = scraped[stock.code];
+    const isLoad = loading.has(stock.code);
+    const hasErr = !!s?.error;
+    const p = s?.closingPrice ?? null;
+    const d = s?.dividendPerShare ?? null;
+    const currentValue = p != null ? p * stock.current_shares : null;
+    const currentDiv   = d != null ? d * stock.current_shares : null;
+    const tr = document.createElement('tr');
+    tr.dataset.aid  = stock.id;
+    tr.dataset.code = stock.code;
+    tr.innerHTML = `
+      <td class="code-cell"><span class="code-badge">${stock.code}</span></td>
+      <td class="name-cell"><span class="company-name">${nameHtml(stock.code, s, isLoad, hasErr)}</span></td>
+      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(currentValue))}</td>
+      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(p))}</td>
+      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>
+      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : (d != null ? fmtYen(d) : '—'))}</td>
+      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(currentDiv))}</td>
+      <td class="action-cell"><div class="action-buttons">
+        <button class="btn-icon aedit-btn" data-aid="${stock.id}" title="編集">✏️</button>
+        <button class="btn-icon danger adel-btn" data-aid="${stock.id}" title="削除">🗑️</button>
+        <button class="btn-icon ref-btn" data-code="${stock.code}" title="更新">↻</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  }
+}
+
 // ─── データ読み込み ───────────────────────────────────────────────────────────
 
 async function loadAll() {
-  [stocks, waitingStocks] = await Promise.all([
+  [stocks, waitingStocks, achievedStocks] = await Promise.all([
     API.get('/stocks'),
     API.get('/waiting-stocks'),
+    API.get('/achieved-stocks'),
   ]);
   renderBoth();
-  const allCodes = [...new Set([...stocks.map(s => s.code), ...waitingStocks.map(s => s.code)])];
+  const allCodes = [...new Set([
+    ...stocks.map(s => s.code),
+    ...waitingStocks.map(s => s.code),
+    ...achievedStocks.map(s => s.code),
+  ])];
   for (const code of allCodes) fetchScraped(code);
 }
 
@@ -281,7 +340,7 @@ function closeModal() {
   modal.classList.remove('open');
   stockForm.reset();
   editingId = null;
-  calcPreview.hidden = true;
+  calcPreview.classList.add('preview-hidden');
 }
 function syncAvgPriceState() {
   const cur = parseInt($('fieldCurrent').value) || 0;
@@ -295,7 +354,6 @@ function updateCalcPreview() {
   const o = parseInt($('fieldOnKabu').value) || 0;
   const c = parseInt($('fieldCurrent').value) || 0;
   const a = parseFloat($('fieldAvgPrice').value) || 0;
-  if (!t || !code) { calcPreview.hidden = true; return; }
   const cv = calculate({ target_shares: t, on_kabu_shares: o, current_shares: c, avg_acquisition_price: a }, scraped[code] ?? null);
   calcGrid.innerHTML = [
     { label: '購入数',   value: fmt(cv.purchaseCount) + '株' },
@@ -305,31 +363,54 @@ function updateCalcPreview() {
     { label: '購入額',   value: fmtYen(cv.purchaseAmt) },
     { label: '配当額',   value: fmtYen(cv.dividendAmt) },
   ].map(i => `<div class="preview-item"><span class="preview-label">${i.label}</span><span class="preview-value ${i.cls||''}">${i.value}</span></div>`).join('');
-  calcPreview.hidden = false;
+  calcPreview.classList.toggle('preview-hidden', !t || !code);
 }
 
 // ─── 恩株待ち モーダル ────────────────────────────────────────────────────────
 
 let editingWId = null;
+let movingFromStockId = null;
 const waitingModal = $('waitingModal');
 const waitingForm  = $('waitingForm');
 
-function openWaitingModal(stock = null) {
+function openWaitingModal(stock = null, forMove = false) {
   editingWId = stock?.id ?? null;
-  $('waitingModalTitle').textContent = stock ? '恩株待ち 編集' : '恩株待ち 銘柄追加';
+  movingFromStockId = null;
+  $('waitingModalTitle').textContent = forMove ? '恩株待ちに移行'
+    : (stock?.id ? '恩株待ち 編集' : '恩株待ち 銘柄追加');
   $('wFieldId').value       = stock?.id ?? '';
   $('wFieldCode').value     = stock?.code ?? '';
-  $('wFieldCode').disabled  = !!stock;
+  $('wFieldCode').disabled  = !!(stock?.id || forMove);
   $('wFieldCurrent').value  = stock?.current_shares ?? '';
   $('wFieldOnKabu').value   = stock?.on_kabu_shares ?? '';
   $('wFieldAvgPrice').value = stock?.avg_acquisition_price ?? '';
   waitingModal.classList.add('open');
   setTimeout(() => $('wFieldCode').focus(), 50);
 }
+
+function moveToWaiting(stock) {
+  const s = scraped[stock.code];
+  const p = s?.closingPrice ?? null;
+  const t = stock.target_shares | 0;
+  const c = stock.current_shares | 0;
+  const a = +(stock.avg_acquisition_price) || 0;
+  let newAvg = a;
+  if (p != null && t > 0) {
+    newAvg = Math.round(((c * a + (t - c) * p) / t) * 10) / 10;
+  }
+  openWaitingModal({
+    code:                 stock.code,
+    current_shares:       t,
+    on_kabu_shares:       stock.on_kabu_shares,
+    avg_acquisition_price: newAvg,
+  }, true);
+  movingFromStockId = stock.id;
+}
 function closeWaitingModal() {
   waitingModal.classList.remove('open');
   waitingForm.reset();
   editingWId = null;
+  movingFromStockId = null;
 }
 
 // ─── 詳細ドロワー ──────────────────────────────────────────────────────────────
@@ -439,10 +520,13 @@ function closeDrawer() {
 // ヘッダーボタン（タブに応じて動作を切り替え）
 $('addBtn').addEventListener('click', () => {
   if (currentTab === 'purchase') openModal();
-  else openWaitingModal();
+  else if (currentTab === 'waiting') openWaitingModal();
+  else openAchievedModal();
 });
 $('refreshAllBtn').addEventListener('click', () => {
-  const targets = currentTab === 'purchase' ? stocks : waitingStocks;
+  const targets = currentTab === 'purchase' ? stocks
+    : currentTab === 'waiting' ? waitingStocks
+    : achievedStocks;
   for (const s of targets) { Cache.clear(s.code); fetchScraped(s.code, true); }
 });
 
@@ -480,9 +564,11 @@ $('tableBody').addEventListener('click', async e => {
   const del    = e.target.closest('.del-btn');
   const ref    = e.target.closest('.ref-btn');
   const detail = e.target.closest('.detail-btn');
+  const move   = e.target.closest('.move-btn');
   if (edit)   { const s = stocks.find(x => x.id == edit.dataset.id); if (s) openModal(s); }
   if (detail) openDrawer(detail.dataset.code);
   if (ref)    { Cache.clear(ref.dataset.code); fetchScraped(ref.dataset.code, true); }
+  if (move)   { const s = stocks.find(x => x.id == move.dataset.id); if (s) moveToWaiting(s); }
   if (del) {
     if (!confirm('この銘柄を削除しますか？')) return;
     try { await API.delete(`/stocks/${del.dataset.id}`); stocks = await API.get('/stocks'); renderPurchase(); }
@@ -507,7 +593,13 @@ waitingForm.addEventListener('submit', async e => {
   try {
     if (editingWId) await API.put(`/waiting-stocks/${editingWId}`, { on_kabu_shares: onKabu, current_shares: current, avg_acquisition_price: avgPrice });
     else            await API.post('/waiting-stocks', { code, on_kabu_shares: onKabu, current_shares: current, avg_acquisition_price: avgPrice });
+    const fromId = movingFromStockId;
     closeWaitingModal();
+    if (fromId) {
+      await API.delete(`/stocks/${fromId}`);
+      stocks = await API.get('/stocks');
+      renderPurchase();
+    }
     waitingStocks = await API.get('/waiting-stocks');
     renderWaiting();
     fetchScraped(code);
@@ -531,11 +623,68 @@ $('waitingTableBody').addEventListener('click', async e => {
   }
 });
 
+// ─── 恩株化 モーダル ──────────────────────────────────────────────────────────
+
+let editingAId = null;
+const achievedModal = $('achievedModal');
+const achievedForm  = $('achievedForm');
+
+function openAchievedModal(stock = null) {
+  editingAId = stock?.id ?? null;
+  $('achievedModalTitle').textContent = stock ? '恩株化 編集' : '恩株化 銘柄追加';
+  $('aFieldId').value     = stock?.id ?? '';
+  $('aFieldCode').value   = stock?.code ?? '';
+  $('aFieldCode').disabled = !!stock;
+  $('aFieldShares').value = stock?.current_shares ?? '';
+  achievedModal.classList.add('open');
+  setTimeout(() => $('aFieldCode').focus(), 50);
+}
+function closeAchievedModal() {
+  achievedModal.classList.remove('open');
+  achievedForm.reset();
+  editingAId = null;
+}
+
+$('aCancelBtn').addEventListener('click', closeAchievedModal);
+achievedModal.addEventListener('click', e => { if (e.target === achievedModal) closeAchievedModal(); });
+
+achievedForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const code   = $('aFieldCode').value.trim();
+  const shares = parseInt($('aFieldShares').value);
+  if (!editingAId && !/^\d{4}$/.test(code)) { alert('証券コードは4桁の数字で入力してください'); return; }
+  if (!shares || shares <= 0) { alert('保有数を入力してください'); return; }
+  const btn = $('aSaveBtn');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    if (editingAId) await API.put(`/achieved-stocks/${editingAId}`, { current_shares: shares });
+    else            await API.post('/achieved-stocks', { code, current_shares: shares });
+    closeAchievedModal();
+    achievedStocks = await API.get('/achieved-stocks');
+    renderAchieved();
+    fetchScraped(code);
+  } catch (err) { alert(err.message); }
+  finally { btn.disabled = false; btn.textContent = '保存'; }
+});
+
+$('achievedTableBody').addEventListener('click', async e => {
+  const edit = e.target.closest('.aedit-btn');
+  const del  = e.target.closest('.adel-btn');
+  const ref  = e.target.closest('.ref-btn');
+  if (edit) { const s = achievedStocks.find(x => x.id == edit.dataset.aid); if (s) openAchievedModal(s); }
+  if (ref)  { Cache.clear(ref.dataset.code); fetchScraped(ref.dataset.code, true); }
+  if (del) {
+    if (!confirm('この銘柄を削除しますか？')) return;
+    try { await API.delete(`/achieved-stocks/${del.dataset.aid}`); achievedStocks = await API.get('/achieved-stocks'); renderAchieved(); }
+    catch (err) { alert(err.message); }
+  }
+});
+
 // ドロワー・キーボード
 $('drawerClose').addEventListener('click', closeDrawer);
 drawerOverlay.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeModal(); closeWaitingModal(); closeDrawer(); }
+  if (e.key === 'Escape') { closeModal(); closeWaitingModal(); closeAchievedModal(); closeDrawer(); }
 });
 
 // ─── 初期化 ────────────────────────────────────────────────────────────────────

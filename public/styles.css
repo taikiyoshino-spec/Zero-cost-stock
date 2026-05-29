@@ -332,6 +332,8 @@ tbody tr:hover td.input-col {
 }
 .btn-icon:hover { background: var(--bg); border-color: var(--border-strong); }
 .btn-icon.danger:hover { background: var(--danger-bg); border-color: var(--danger); }
+.btn-icon.move-btn { color: var(--primary); border-color: var(--primary-light); }
+.btn-icon.move-btn:hover { background: var(--primary-light); border-color: var(--primary); }
 
 /* ─── モーダル ──────────────────────────────────────────────────────────────── */
 .modal-overlay {
@@ -410,6 +412,7 @@ tbody tr:hover td.input-col {
   padding: 12px;
   margin-bottom: 14px;
 }
+.calc-preview.preview-hidden { visibility: hidden; }
 .calc-preview-title {
   font-size: 11px;
   font-weight: 700;
@@ -551,6 +554,42 @@ tbody tr:hover td.input-col {
   .form-row.two-col { grid-template-columns: 1fr; }
   .modal-box { padding: 20px 16px; }
   .modal-title { font-size: 15px; }
+}
+
+/* ─── 恩株化 サマリーバー ────────────────────────────────────────────────────── */
+.achieved-summary {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 10px 16px;
+  background: var(--primary-light);
+  border-bottom: 1px solid var(--border);
+}
+.achieved-summary-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 16px 0 0;
+}
+.achieved-summary-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--primary);
+  opacity: .3;
+  margin: 0 16px 0 0;
+}
+.achieved-summary-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.achieved-summary-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (min-width: 768px) {
