@@ -40,6 +40,8 @@ const Cache = {
   clear(code) { localStorage.removeItem(this.key(code)); },
 };
 
+const TAX_RATE = 0.20315;
+
 // ─── フォーマットヘルパー ─────────────────────────────────────────────────────
 
 const fmt     = (n, d = 0) => (n == null || isNaN(n)) ? '—'
@@ -68,10 +70,14 @@ function nameHtml(code, s, isLoad, hasErr) {
 function calculate(stock, scraped) {
   const t = stock.target_shares  | 0;
   const o = stock.on_kabu_shares | 0;
-  const c = stock.current_shares | 0;
-  const a = +(stock.avg_acquisition_price) || 0;
   const p = scraped?.closingPrice    ?? null;
   const d = scraped?.dividendPerShare ?? null;
+
+  // 現在保有：複数口座対応
+  const lots = getLots(stock);
+  const c = lots.reduce((s, l) => s + (l.current_shares | 0), 0);
+  const currentCost = lots.reduce((s, l) => s + (l.current_shares | 0) * (+(l.avg_acquisition_price) || 0), 0);
+  const a = c > 0 ? currentCost / c : 0;
 
   const purchaseCount    = t - c;
   const currentAcq       = c * a;
@@ -79,11 +85,29 @@ function calculate(stock, scraped) {
   const sellCount        = t - o;
   const onKabuPrice      = sellCount > 0 ? totalAcq / sellCount : null;
   const purchaseAmt      = purchaseCount * (p ?? 0);
-  const onKabuDiff       = (p != null && onKabuPrice != null) ? p - onKabuPrice : null;
+  const purchaseAfterAvg = t > 0 ? totalAcq / t : null;
+  // 非NISA比率の計算：現在保有ロット + 新規購入口座設定
+  const nonNisaLots   = lots.filter(l => (l.is_nisa ?? 1) === 0);
+  const nonNisaShares = nonNisaLots.reduce((s, l) => s + (l.current_shares | 0), 0);
+  const nonNisaCost   = nonNisaLots.reduce((s, l) => s + (l.current_shares | 0) * (+(l.avg_acquisition_price) || 0), 0);
+
+  const purchaseIsNisa   = (stock.purchase_nisa ?? 1) !== 0;
+  const newPurchaseNonNisa = purchaseIsNisa ? 0 : purchaseCount;
+  const combinedNonNisaShares = nonNisaShares + newPurchaseNonNisa;
+  const combinedNonNisaCost   = nonNisaCost   + newPurchaseNonNisa * (p ?? 0);
+  const combinedNonNisaAvg    = combinedNonNisaShares > 0 ? combinedNonNisaCost / combinedNonNisaShares : 0;
+  const combinedNonNisaFrac   = t > 0 ? combinedNonNisaShares / t : 0;
+
+  let onKabuDiff;
+  if (combinedNonNisaFrac > 0 && onKabuPrice != null && sellCount > 0) {
+    const mixedBE = (onKabuPrice - combinedNonNisaFrac * combinedNonNisaAvg * TAX_RATE) / (1 - combinedNonNisaFrac * TAX_RATE);
+    onKabuDiff = p != null ? p - mixedBE : null;
+  } else {
+    onKabuDiff = (p != null && onKabuPrice != null) ? p - onKabuPrice : null;
+  }
   const dividendAmt      = d != null ? t * d : null;
   const currentAmt       = p != null ? p * c : null;
   const profitLoss       = currentAmt != null ? currentAmt - currentAcq : null;
-  const purchaseAfterAvg = t > 0 ? totalAcq / t : null;
   const currentSellAmt   = purchaseAfterAvg != null ? sellCount * purchaseAfterAvg : null;
 
   return { purchaseCount, purchaseAmt, onKabuPrice, onKabuDiff, dividendAmt,
@@ -93,25 +117,97 @@ function calculate(stock, scraped) {
 
 // ─── 計算：恩株待ち ───────────────────────────────────────────────────────────
 
+function getLots(stock) {
+  if (stock?.lots) {
+    try {
+      const parsed = typeof stock.lots === 'string' ? JSON.parse(stock.lots) : stock.lots;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {}
+  }
+  if ((stock?.current_shares | 0) > 0) {
+    return [{ current_shares: stock.current_shares | 0,
+              avg_acquisition_price: +(stock.avg_acquisition_price) || 0,
+              is_nisa: stock.is_nisa ?? 1 }];
+  }
+  return [];
+}
+
+function createLotRow(lot = {}) {
+  const isNisa = (lot.is_nisa ?? 1) !== 0;
+  const div = document.createElement('div');
+  div.className = 'lot-row';
+  div.innerHTML = `
+    <button type="button" class="lot-nisa-chip" data-nisa="${isNisa ? 1 : 0}">${isNisa ? 'NISA' : '非NISA'}</button>
+    <input type="number" class="lot-shares-input" placeholder="保有数" min="0" step="100" value="${lot.current_shares || ''}">
+    <span class="lot-unit">株</span>
+    <input type="number" class="lot-avg-input" placeholder="均価" min="0" step="0.01" value="${lot.avg_acquisition_price || ''}">
+    <span class="lot-unit">円</span>
+    <button type="button" class="btn-icon danger lot-remove-btn" title="削除">−</button>`;
+  div.querySelector('.lot-nisa-chip').addEventListener('click', function() {
+    const next = parseInt(this.dataset.nisa) === 1 ? 0 : 1;
+    this.dataset.nisa = next;
+    this.textContent = next === 1 ? 'NISA' : '非NISA';
+  });
+  div.querySelector('.lot-remove-btn').addEventListener('click', () => {
+    if (div.parentElement.querySelectorAll('.lot-row').length > 1) div.remove();
+    else { div.querySelector('.lot-shares-input').value = ''; div.querySelector('.lot-avg-input').value = ''; }
+  });
+  return div;
+}
+
+function collectLots(containerId) {
+  return Array.from($(containerId).querySelectorAll('.lot-row')).map(row => ({
+    current_shares:        parseInt(row.querySelector('.lot-shares-input').value) || 0,
+    avg_acquisition_price: parseFloat(row.querySelector('.lot-avg-input').value) || 0,
+    is_nisa:               parseInt(row.querySelector('.lot-nisa-chip').dataset.nisa),
+  })).filter(l => l.current_shares > 0);
+}
+
 function calculateWaiting(stock, scraped) {
+  const lots = getLots(stock);
   const o = stock.on_kabu_shares | 0;
-  const c = stock.current_shares | 0;
-  const a = +(stock.avg_acquisition_price) || 0;
   const p = scraped?.closingPrice    ?? null;
   const d = scraped?.dividendPerShare ?? null;
 
-  const currentAcq  = c * a;                                          // 現在取得金額
-  const sellCount   = c - o;                                          // 売数
-  const sellPrice   = sellCount > 0 ? currentAcq / sellCount : null; // 売値
-  const sellAmt     = sellPrice != null ? sellPrice * sellCount : null; // 売値額（≒現在取得金額）
-  const onKabuDiff  = (p != null && sellPrice != null) ? p - sellPrice : null; // 恩株差
-  const currentAmt  = p != null ? p * c : null;                       // 現在金額
-  const profitLoss  = currentAmt != null ? currentAmt - currentAcq : null; // 現在損益
-  const currentSell = p != null ? sellCount * p : null;               // 現売値
-  const currentDiv  = d != null ? c * d : null;                       // 現配当
-  const afterDiv    = d != null ? o * d : null;                       // 後配当
+  // 全口座を集計
+  const totalShares = lots.reduce((s, l) => s + (l.current_shares | 0), 0);
+  const totalCost   = lots.reduce((s, l) => s + (l.current_shares | 0) * (+(l.avg_acquisition_price) || 0), 0);
+  const weightedAvg = totalShares > 0 ? totalCost / totalShares : 0;
 
-  return { currentAcq, sellCount, sellPrice, sellAmt, onKabuDiff,
+  // 非NISA口座を集計
+  const nonNisaLots   = lots.filter(l => (l.is_nisa ?? 1) === 0);
+  const nonNisaShares = nonNisaLots.reduce((s, l) => s + (l.current_shares | 0), 0);
+  const nonNisaCost   = nonNisaLots.reduce((s, l) => s + (l.current_shares | 0) * (+(l.avg_acquisition_price) || 0), 0);
+  const nonNisaAvg    = nonNisaShares > 0 ? nonNisaCost / nonNisaShares : 0;
+  const nonNisaFrac   = totalShares > 0 ? nonNisaShares / totalShares : 0;
+
+  const sellCount = totalShares - o;
+  const sellPrice = sellCount > 0 ? totalCost / sellCount : null;
+  const sellAmt   = totalCost;
+
+  const currentAmt = p != null ? p * totalShares : null;
+  const profitLoss = currentAmt != null ? currentAmt - totalCost : null;
+  const currentDiv = d != null ? totalShares * d : null;
+  const afterDiv   = d != null ? o * d : null;
+
+  const currentSellRaw = p != null ? sellCount * p : null;
+  const onKabuDiffRaw  = (p != null && sellPrice != null) ? p - sellPrice : null;
+
+  // 非NISA比率に応じて税を按分（比例売却を仮定）
+  // 混合損益分岐点: p_b = (nisaBE − nonNisaFrac × nonNisaAvg × TAX) / (1 − nonNisaFrac × TAX)
+  let currentSell = currentSellRaw;
+  let onKabuDiff  = onKabuDiffRaw;
+  if (nonNisaFrac > 0 && p != null && sellCount > 0 && nonNisaAvg > 0) {
+    const nonNisaSellProceeds = (currentSellRaw || 0) * nonNisaFrac;
+    const nonNisaSellCost     = sellCount * nonNisaFrac * nonNisaAvg;
+    const profit = Math.max(0, nonNisaSellProceeds - nonNisaSellCost);
+    currentSell = (currentSellRaw || 0) - profit * TAX_RATE;
+    const mixedBE = (sellPrice - nonNisaFrac * nonNisaAvg * TAX_RATE) / (1 - nonNisaFrac * TAX_RATE);
+    onKabuDiff = p - mixedBE;
+  }
+
+  return { totalShares, weightedAvg, nonNisaFrac, lots,
+           currentAcq: totalCost, sellCount, sellPrice, sellAmt, onKabuDiff,
            currentAmt, profitLoss, currentSell, currentDiv, afterDiv };
 }
 
@@ -123,6 +219,7 @@ let waitingStocks   = [];
 let achievedStocks  = [];
 let scraped         = {};
 const loading       = new Set();
+let drawerContext   = null;
 
 // ─── DOM 参照 ──────────────────────────────────────────────────────────────────
 
@@ -164,6 +261,23 @@ async function fetchScraped(code, force = false) {
 
 function renderBoth() { renderPurchase(); renderWaiting(); renderAchieved(); }
 
+// ─── ドロワーアクションボタン生成 ─────────────────────────────────────────────
+
+function buildDrawerActions(type) {
+  const edit    = `<button class="btn-drawer-action da-edit">✏️ 編集</button>`;
+  const ref     = `<button class="btn-drawer-action da-ref">↻ 更新</button>`;
+  const del     = `<button class="btn-drawer-action danger da-del">🗑️ 削除</button>`;
+  const toWait  = `<button class="btn-drawer-action move da-move">↗ 恩株待ちへ移行</button>`;
+  const toAchieve = `<button class="btn-drawer-action move da-achieve">🎯 恩株化へ移行</button>`;
+  if (type === 'purchase') {
+    return `<div class="drawer-action-grid">${edit}${toWait}${ref}${del}</div>`;
+  }
+  if (type === 'waiting') {
+    return `<div class="drawer-action-grid">${edit}${toAchieve}${ref}${del}</div>`;
+  }
+  return `<div class="drawer-action-grid">${edit}${ref}<div class="drawer-action-span2">${del}</div></div>`;
+}
+
 // ─── 購入検討 描画 ────────────────────────────────────────────────────────────
 
 function renderPurchase() {
@@ -194,13 +308,7 @@ function renderPurchase() {
       <td class="num-cell desktop-only input-col">${fmt(stock.current_shares)}</td>
       <td class="num-cell desktop-only input-col">${stock.current_shares > 0 ? fmtYen(stock.avg_acquisition_price) : '—'}</td>
       <td class="num-cell ${signCls(cv.profitLoss)}">${fmtYen(cv.profitLoss)}</td>
-      <td class="action-cell"><div class="action-buttons">
-        <button class="btn-icon detail-btn" data-code="${stock.code}" title="詳細">👁</button>
-        <button class="btn-icon edit-btn"   data-id="${stock.id}"    title="編集">✏️</button>
-        <button class="btn-icon move-btn"   data-id="${stock.id}" data-code="${stock.code}" title="恩株待ちに移行">↗</button>
-        <button class="btn-icon danger del-btn"  data-id="${stock.id}"    title="削除">🗑️</button>
-        <button class="btn-icon ref-btn"    data-code="${stock.code}" title="更新">↻</button>
-      </div></td>`;
+      <td class="action-cell"><button class="btn-icon action-open-btn" data-id="${stock.id}" data-code="${stock.code}" title="操作">⋮</button></td>`;
     tbody.appendChild(tr);
   }
 }
@@ -233,15 +341,10 @@ function renderWaiting() {
       <td class="num-cell ${signCls(cv.profitLoss)}">${fmtYen(cv.profitLoss)}</td>
       <td class="num-cell desktop-only">${fmtYen(cv.sellAmt)}</td>
       <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>
-      <td class="num-cell desktop-only input-col">${fmt(stock.current_shares)}</td>
+      <td class="num-cell desktop-only input-col">${fmt(cv.totalShares)}</td>
       <td class="num-cell desktop-only input-col">${fmt(stock.on_kabu_shares)}</td>
-      <td class="num-cell desktop-only input-col">${fmtYen(stock.avg_acquisition_price)}</td>
-      <td class="action-cell"><div class="action-buttons">
-        <button class="btn-icon wdetail-btn" data-code="${stock.code}" title="詳細">👁</button>
-        <button class="btn-icon wedit-btn"   data-wid="${stock.id}"   title="編集">✏️</button>
-        <button class="btn-icon danger wdel-btn"  data-wid="${stock.id}"   title="削除">🗑️</button>
-        <button class="btn-icon ref-btn"     data-code="${stock.code}" title="更新">↻</button>
-      </div></td>`;
+      <td class="num-cell desktop-only input-col">${fmtYen(cv.weightedAvg)}</td>
+      <td class="action-cell"><button class="btn-icon action-open-btn" data-wid="${stock.id}" data-code="${stock.code}" title="操作">⋮</button></td>`;
     tbody.appendChild(tr);
   }
 }
@@ -255,11 +358,15 @@ function renderAchieved() {
   const anyLoading = achievedStocks.some(s => loading.has(s.code));
   const totalAssets = achievedStocks.reduce((sum, s) => {
     const p = scraped[s.code]?.closingPrice;
-    return p != null ? sum + p * s.current_shares : sum;
+    if (p == null) return sum;
+    const taxMult = (s.is_nisa ?? 1) === 0 ? (1 - TAX_RATE) : 1;
+    return sum + p * s.current_shares * taxMult;
   }, 0);
   const totalDiv = achievedStocks.reduce((sum, s) => {
     const d = scraped[s.code]?.dividendPerShare;
-    return d != null ? sum + d * s.current_shares : sum;
+    if (d == null) return sum;
+    const taxMult = (s.is_nisa ?? 1) === 0 ? (1 - TAX_RATE) : 1;
+    return sum + d * s.current_shares * taxMult;
   }, 0);
   const placeholder = achievedStocks.length === 0 ? '—' : anyLoading ? '読込中…' : null;
   $('achievedTotalAssets').textContent = placeholder ?? fmtYen(totalAssets);
@@ -275,8 +382,9 @@ function renderAchieved() {
     const hasErr = !!s?.error;
     const p = s?.closingPrice ?? null;
     const d = s?.dividendPerShare ?? null;
-    const currentValue = p != null ? p * stock.current_shares : null;
-    const currentDiv   = d != null ? d * stock.current_shares : null;
+    const taxMult = (stock.is_nisa ?? 1) === 0 ? (1 - TAX_RATE) : 1;
+    const currentValue = p != null ? p * stock.current_shares * taxMult : null;
+    const currentDiv   = d != null ? d * stock.current_shares * taxMult : null;
     const tr = document.createElement('tr');
     tr.dataset.aid  = stock.id;
     tr.dataset.code = stock.code;
@@ -284,15 +392,11 @@ function renderAchieved() {
       <td class="code-cell"><span class="code-badge">${stock.code}</span></td>
       <td class="name-cell"><span class="company-name">${nameHtml(stock.code, s, isLoad, hasErr)}</span></td>
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(currentValue))}</td>
+      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(currentDiv))}</td>
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(p))}</td>
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : (d != null ? fmtYen(d) : '—'))}</td>
-      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(currentDiv))}</td>
-      <td class="action-cell"><div class="action-buttons">
-        <button class="btn-icon aedit-btn" data-aid="${stock.id}" title="編集">✏️</button>
-        <button class="btn-icon danger adel-btn" data-aid="${stock.id}" title="削除">🗑️</button>
-        <button class="btn-icon ref-btn" data-code="${stock.code}" title="更新">↻</button>
-      </div></td>`;
+      <td class="action-cell"><button class="btn-icon action-open-btn" data-aid="${stock.id}" data-code="${stock.code}" title="操作">⋮</button></td>`;
     tbody.appendChild(tr);
   }
 }
@@ -324,37 +428,38 @@ const calcGrid     = $('calcPreviewGrid');
 
 function openModal(stock = null) {
   editingId = stock?.id ?? null;
-  $('modalTitle').textContent  = stock ? '銘柄編集' : '銘柄追加';
-  $('fieldId').value           = stock?.id ?? '';
-  $('fieldCode').value         = stock?.code ?? '';
-  $('fieldCode').disabled      = !!stock;
-  $('fieldTarget').value       = stock?.target_shares ?? '';
-  $('fieldOnKabu').value       = stock?.on_kabu_shares ?? '';
-  $('fieldCurrent').value      = stock?.current_shares ?? 0;
-  $('fieldAvgPrice').value     = stock?.avg_acquisition_price ?? 0;
-  syncAvgPriceState();
+  $('modalTitle').textContent = stock ? '銘柄編集' : '銘柄追加';
+  $('fieldId').value          = stock?.id ?? '';
+  $('fieldCode').value        = stock?.code ?? '';
+  $('fieldCode').disabled     = !!stock;
+  $('fieldTarget').value      = stock?.target_shares ?? '';
+  $('fieldOnKabu').value      = stock?.on_kabu_shares ?? '';
+  const lots = getLots(stock);
+  const pc = $('pLotsContainer');
+  pc.innerHTML = '';
+  (lots.length > 0 ? lots : []).forEach(l => pc.appendChild(createLotRow(l)));
+  const pnBtn = $('pPurchaseNisaBtn');
+  const pIsNisa = (stock?.purchase_nisa ?? 1) !== 0;
+  pnBtn.dataset.nisa = pIsNisa ? 1 : 0;
+  pnBtn.textContent  = pIsNisa ? 'NISA' : '非NISA';
   modal.classList.add('open');
   setTimeout(() => $('fieldCode').focus(), 50);
 }
 function closeModal() {
   modal.classList.remove('open');
-  stockForm.reset();
+  $('fieldId').value = ''; $('fieldCode').value = '';
+  $('fieldTarget').value = ''; $('fieldOnKabu').value = '';
+  $('pLotsContainer').innerHTML = '';
   editingId = null;
   calcPreview.classList.add('preview-hidden');
-}
-function syncAvgPriceState() {
-  const cur = parseInt($('fieldCurrent').value) || 0;
-  $('fieldAvgPrice').disabled = cur === 0;
-  if (cur === 0) $('fieldAvgPrice').value = 0;
-  updateCalcPreview();
 }
 function updateCalcPreview() {
   const code = $('fieldCode').value.trim();
   const t = parseInt($('fieldTarget').value) || 0;
   const o = parseInt($('fieldOnKabu').value) || 0;
-  const c = parseInt($('fieldCurrent').value) || 0;
-  const a = parseFloat($('fieldAvgPrice').value) || 0;
-  const cv = calculate({ target_shares: t, on_kabu_shares: o, current_shares: c, avg_acquisition_price: a }, scraped[code] ?? null);
+  const lots = collectLots('pLotsContainer');
+  const purchase_nisa = parseInt($('pPurchaseNisaBtn').dataset.nisa);
+  const cv = calculate({ target_shares: t, on_kabu_shares: o, lots, purchase_nisa }, scraped[code] ?? null);
   calcGrid.innerHTML = [
     { label: '購入数',   value: fmt(cv.purchaseCount) + '株' },
     { label: '売却数',   value: fmt(cv.sellCount) + '株' },
@@ -378,37 +483,72 @@ function openWaitingModal(stock = null, forMove = false) {
   movingFromStockId = null;
   $('waitingModalTitle').textContent = forMove ? '恩株待ちに移行'
     : (stock?.id ? '恩株待ち 編集' : '恩株待ち 銘柄追加');
-  $('wFieldId').value       = stock?.id ?? '';
-  $('wFieldCode').value     = stock?.code ?? '';
-  $('wFieldCode').disabled  = !!(stock?.id || forMove);
-  $('wFieldCurrent').value  = stock?.current_shares ?? '';
-  $('wFieldOnKabu').value   = stock?.on_kabu_shares ?? '';
-  $('wFieldAvgPrice').value = stock?.avg_acquisition_price ?? '';
+  $('wFieldId').value      = stock?.id ?? '';
+  $('wFieldCode').value    = stock?.code ?? '';
+  $('wFieldCode').disabled = !!(stock?.id || forMove);
+  $('wFieldOnKabu').value  = stock?.on_kabu_shares ?? '';
+  const lots = getLots(stock);
+  const container = $('wLotsContainer');
+  container.innerHTML = '';
+  (lots.length > 0 ? lots : [{}]).forEach(l => container.appendChild(createLotRow(l)));
   waitingModal.classList.add('open');
   setTimeout(() => $('wFieldCode').focus(), 50);
+}
+
+async function moveToAchieved(stock) {
+  const lots = getLots(stock);
+  const hasNonNisa = lots.some(l => (l.is_nisa ?? 1) === 0);
+  const is_nisa = hasNonNisa ? 0 : 1;
+  try {
+    await API.post('/achieved-stocks', { code: stock.code, current_shares: stock.on_kabu_shares, is_nisa });
+    await API.delete(`/waiting-stocks/${stock.id}`);
+    [waitingStocks, achievedStocks] = await Promise.all([
+      API.get('/waiting-stocks'),
+      API.get('/achieved-stocks'),
+    ]);
+    renderWaiting();
+    renderAchieved();
+  } catch (err) { alert(err.message); }
 }
 
 function moveToWaiting(stock) {
   const s = scraped[stock.code];
   const p = s?.closingPrice ?? null;
   const t = stock.target_shares | 0;
-  const c = stock.current_shares | 0;
-  const a = +(stock.avg_acquisition_price) || 0;
-  let newAvg = a;
-  if (p != null && t > 0) {
-    newAvg = Math.round(((c * a + (t - c) * p) / t) * 10) / 10;
+  const existingLots = getLots(stock);
+  const c = existingLots.reduce((sum, l) => sum + (l.current_shares | 0), 0);
+  const currentCost = existingLots.reduce((sum, l) => sum + (l.current_shares | 0) * (+(l.avg_acquisition_price) || 0), 0);
+  const a = c > 0 ? currentCost / c : 0;
+  const purchaseIsNisa = (stock.purchase_nisa ?? 1) !== 0;
+  const newAvg = t > 0
+    ? Math.round(((c * a + (t - c) * (p ?? a)) / t) * 10) / 10
+    : a;
+  const newPurchase = t - c;
+  let moveLots;
+  if (existingLots.length > 0 && newPurchase > 0) {
+    moveLots = existingLots.map(l => ({ ...l }));
+    const targetLot = moveLots.find(l => ((l.is_nisa ?? 1) !== 0) === purchaseIsNisa);
+    if (targetLot) {
+      targetLot.current_shares = (targetLot.current_shares | 0) + newPurchase;
+    } else {
+      moveLots.push({ current_shares: newPurchase, avg_acquisition_price: p ?? 0, is_nisa: purchaseIsNisa ? 1 : 0 });
+    }
+  } else {
+    moveLots = [{ current_shares: t, avg_acquisition_price: newAvg, is_nisa: purchaseIsNisa ? 1 : 0 }];
   }
   openWaitingModal({
-    code:                 stock.code,
-    current_shares:       t,
-    on_kabu_shares:       stock.on_kabu_shares,
-    avg_acquisition_price: newAvg,
+    code:           stock.code,
+    on_kabu_shares: stock.on_kabu_shares,
+    lots:           moveLots,
   }, true);
   movingFromStockId = stock.id;
 }
 function closeWaitingModal() {
   waitingModal.classList.remove('open');
-  waitingForm.reset();
+  $('wFieldId').value = '';
+  $('wFieldCode').value = '';
+  $('wFieldOnKabu').value = '';
+  $('wLotsContainer').innerHTML = '';
   editingWId = null;
   movingFromStockId = null;
 }
@@ -443,12 +583,18 @@ function openDrawer(code) {
       { label: '利回り',   value: fmtPct(s?.yieldValue) },
       { label: '配当予想', value: s?.dividendPerShare != null ? `¥${fmt(s.dividendPerShare)}` : '—' },
     ]},
-    { title: 'インプット', rows: [
-      { label: '目標保有数', value: fmt(stock.target_shares) + '株' },
-      { label: '恩株数',     value: fmt(stock.on_kabu_shares) + '株' },
-      { label: '現在保有数', value: fmt(stock.current_shares) + '株' },
-      { label: '取得平均額', value: fmtYen(stock.avg_acquisition_price) },
-    ]},
+    { title: 'インプット', rows: (() => {
+        const currentLots = getLots(stock);
+        const totalC = currentLots.reduce((s,l) => s + (l.current_shares|0), 0);
+        const rows = [
+          { label: '目標保有数', value: fmt(stock.target_shares) + '株' },
+          { label: '恩株数',     value: fmt(stock.on_kabu_shares) + '株' },
+          { label: '現在保有数', value: fmt(totalC) + '株' },
+        ];
+        if (totalC > 0) rows.push({ label: '加重平均', value: fmtYen(cv.currentAcq / totalC) });
+        return rows;
+      })()
+    },
     { title: '購入計画', rows: [
       { label: '購入数',         value: fmt(cv.purchaseCount) + '株' },
       { label: '購入額',         value: fmtYen(cv.purchaseAmt) },
@@ -460,14 +606,16 @@ function openDrawer(code) {
       { label: '売却数',     value: fmt(cv.sellCount) + '株' },
       { label: '恩株売値',   value: fmtYen(cv.onKabuPrice) },
       { label: '現在売却額', value: fmtYen(cv.currentSellAmt) },
-      { label: '恩株差', value: fmtYen(cv.onKabuDiff), cls: signCls(cv.onKabuDiff) },
+      { label: '恩株差',     value: fmtYen(cv.onKabuDiff), cls: signCls(cv.onKabuDiff) },
     ]},
     { title: '現在保有', rows: [
       { label: '現在金額',     value: fmtYen(cv.currentAmt) },
       { label: '現在取得金額', value: fmtYen(cv.currentAcq) },
-      { label: '現在損益', value: fmtYen(cv.profitLoss), cls: signCls(cv.profitLoss) },
+      { label: '現在損益',     value: fmtYen(cv.profitLoss), cls: signCls(cv.profitLoss) },
     ]},
   ]);
+  drawerContext = { type: 'purchase', id: stock.id, code };
+  $('drawerActions').innerHTML = buildDrawerActions('purchase');
   drawerOverlay.classList.add('open');
   detailDrawer.classList.add('open');
 }
@@ -484,10 +632,11 @@ function openWaitingDrawer(code) {
       { label: '利回り',   value: fmtPct(s?.yieldValue) },
       { label: '配当予想', value: s?.dividendPerShare != null ? `¥${fmt(s.dividendPerShare)}` : '—' },
     ]},
-    { title: 'インプット', rows: [
-      { label: '現在保有数', value: fmt(stock.current_shares) + '株' },
+    { title: '保有口座', rows: [
+      { label: '合計保有数', value: fmt(cv.totalShares) + '株' },
       { label: '恩株数',     value: fmt(stock.on_kabu_shares) + '株' },
-      { label: '取得平均額', value: fmtYen(stock.avg_acquisition_price) },
+      { label: '加重平均',   value: fmtYen(cv.weightedAvg) },
+      { label: '非NISA比率', value: cv.nonNisaFrac > 0 ? fmtPct(cv.nonNisaFrac * 100) : '全NISA' },
     ]},
     { title: '恩株化', rows: [
       { label: '売数',   value: fmt(cv.sellCount) + '株' },
@@ -497,15 +646,51 @@ function openWaitingDrawer(code) {
       { label: '現売値', value: fmtYen(cv.currentSell) },
     ]},
     { title: '配当', rows: [
-      { label: '現配当（全株）', value: fmtYen(cv.currentDiv) },
+      { label: '現配当（全株）',   value: fmtYen(cv.currentDiv) },
       { label: '後配当（恩株後）', value: fmtYen(cv.afterDiv) },
     ]},
     { title: '現在保有', rows: [
       { label: '現在金額',     value: fmtYen(cv.currentAmt) },
       { label: '現在取得金額', value: fmtYen(cv.currentAcq) },
-      { label: '現在損益', value: fmtYen(cv.profitLoss), cls: signCls(cv.profitLoss) },
+      { label: '現在損益',     value: fmtYen(cv.profitLoss), cls: signCls(cv.profitLoss) },
     ]},
   ]);
+  drawerContext = { type: 'waiting', id: stock.id, code };
+  $('drawerActions').innerHTML = buildDrawerActions('waiting');
+  drawerOverlay.classList.add('open');
+  detailDrawer.classList.add('open');
+}
+
+function openAchievedDrawer(code) {
+  const stock = achievedStocks.find(s => s.code === code);
+  if (!stock) return;
+  const s = scraped[code];
+  const isLoad = loading.has(code);
+  const hasErr = !!s?.error;
+  const p = s?.closingPrice ?? null;
+  const d = s?.dividendPerShare ?? null;
+  const isNisaStock = (stock.is_nisa ?? 1) !== 0;
+  const taxMult = isNisaStock ? 1 : (1 - TAX_RATE);
+  const currentValue    = p != null ? p * stock.current_shares * taxMult : null;
+  const currentValueRaw = p != null ? p * stock.current_shares : null;
+  const currentDiv      = d != null ? d * stock.current_shares * taxMult : null;
+  $('drawerTitle').textContent = `${code} ${s?.companyName || ''}（恩株化）`;
+  $('drawerBody').innerHTML = buildDrawer([
+    { title: '市場データ', rows: [
+      { label: '終値',     value: isLoad ? '読込中' : (hasErr ? '—' : fmtYen(p)) },
+      { label: '利回り',   value: isLoad ? '読込中' : (hasErr ? '—' : fmtPct(s?.yieldValue)) },
+      { label: '配当予想', value: isLoad ? '読込中' : (hasErr ? '—' : (d != null ? fmtYen(d) : '—')) },
+    ]},
+    { title: '保有情報', rows: [
+      { label: '口座種別',   value: isNisaStock ? 'NISA' : '非NISA' },
+      { label: '保有数',     value: fmt(stock.current_shares) + '株' },
+      { label: isNisaStock ? '現在評価額' : '現在評価額(税引後)', value: isLoad ? '読込中' : fmtYen(currentValue) },
+      ...(!isNisaStock ? [{ label: '現在評価額(税引前)', value: isLoad ? '読込中' : fmtYen(currentValueRaw) }] : []),
+      { label: isNisaStock ? '年間配当' : '年間配当(税引後)', value: isLoad ? '読込中' : fmtYen(currentDiv) },
+    ]},
+  ]);
+  drawerContext = { type: 'achieved', id: stock.id, code };
+  $('drawerActions').innerHTML = buildDrawerActions('achieved');
   drawerOverlay.classList.add('open');
   detailDrawer.classList.add('open');
 }
@@ -513,11 +698,11 @@ function openWaitingDrawer(code) {
 function closeDrawer() {
   drawerOverlay.classList.remove('open');
   detailDrawer.classList.remove('open');
+  drawerContext = null;
 }
 
 // ─── イベントリスナー ──────────────────────────────────────────────────────────
 
-// ヘッダーボタン（タブに応じて動作を切り替え）
 $('addBtn').addEventListener('click', () => {
   if (currentTab === 'purchase') openModal();
   else if (currentTab === 'waiting') openWaitingModal();
@@ -533,23 +718,33 @@ $('refreshAllBtn').addEventListener('click', () => {
 // 購入検討 モーダル
 $('cancelBtn').addEventListener('click', closeModal);
 modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
-$('fieldCurrent').addEventListener('input', syncAvgPriceState);
-['fieldTarget','fieldOnKabu','fieldAvgPrice','fieldCode'].forEach(id => $( id).addEventListener('input', updateCalcPreview));
+['fieldTarget','fieldOnKabu','fieldCode'].forEach(id => $(id).addEventListener('input', updateCalcPreview));
+$('pLotsContainer').addEventListener('input', updateCalcPreview);
+$('pPurchaseNisaBtn').addEventListener('click', function() {
+  const next = parseInt(this.dataset.nisa) === 1 ? 0 : 1;
+  this.dataset.nisa = next;
+  this.textContent  = next === 1 ? 'NISA' : '非NISA';
+  updateCalcPreview();
+});
+$('pAddLotBtn').addEventListener('click', () => {
+  $('pLotsContainer').appendChild(createLotRow());
+  updateCalcPreview();
+});
 
 stockForm.addEventListener('submit', async e => {
   e.preventDefault();
   const code   = $('fieldCode').value.trim();
   const target = parseInt($('fieldTarget').value);
   const onKabu = parseInt($('fieldOnKabu').value);
-  const current  = parseInt($('fieldCurrent').value) || 0;
-  const avgPrice = parseFloat($('fieldAvgPrice').value) || 0;
+  const lots         = collectLots('pLotsContainer');
+  const purchase_nisa = parseInt($('pPurchaseNisaBtn').dataset.nisa);
   if (!editingId && !/^\d{4}$/.test(code)) { alert('証券コードは4桁の数字で入力してください'); return; }
   if (onKabu >= target) { alert('恩株数は目標保有数より小さくしてください'); return; }
   const btn = $('saveBtn');
   btn.disabled = true; btn.textContent = '保存中…';
   try {
-    if (editingId) await API.put(`/stocks/${editingId}`, { target_shares: target, on_kabu_shares: onKabu, current_shares: current, avg_acquisition_price: avgPrice });
-    else           await API.post('/stocks', { code, target_shares: target, on_kabu_shares: onKabu, current_shares: current, avg_acquisition_price: avgPrice });
+    if (editingId) await API.put(`/stocks/${editingId}`, { target_shares: target, on_kabu_shares: onKabu, lots, purchase_nisa });
+    else           await API.post('/stocks', { code, target_shares: target, on_kabu_shares: onKabu, lots, purchase_nisa });
     closeModal();
     stocks = await API.get('/stocks');
     renderPurchase();
@@ -559,21 +754,14 @@ stockForm.addEventListener('submit', async e => {
 });
 
 // 購入検討 テーブルボタン
-$('tableBody').addEventListener('click', async e => {
-  const edit   = e.target.closest('.edit-btn');
-  const del    = e.target.closest('.del-btn');
-  const ref    = e.target.closest('.ref-btn');
-  const detail = e.target.closest('.detail-btn');
-  const move   = e.target.closest('.move-btn');
-  if (edit)   { const s = stocks.find(x => x.id == edit.dataset.id); if (s) openModal(s); }
-  if (detail) openDrawer(detail.dataset.code);
-  if (ref)    { Cache.clear(ref.dataset.code); fetchScraped(ref.dataset.code, true); }
-  if (move)   { const s = stocks.find(x => x.id == move.dataset.id); if (s) moveToWaiting(s); }
-  if (del) {
-    if (!confirm('この銘柄を削除しますか？')) return;
-    try { await API.delete(`/stocks/${del.dataset.id}`); stocks = await API.get('/stocks'); renderPurchase(); }
-    catch (err) { alert(err.message); }
-  }
+$('tableBody').addEventListener('click', e => {
+  const btn = e.target.closest('.action-open-btn');
+  if (btn) openDrawer(btn.dataset.code);
+});
+
+// 恩株待ち 口座追加ボタン
+$('wAddLotBtn').addEventListener('click', () => {
+  $('wLotsContainer').appendChild(createLotRow());
 });
 
 // 恩株待ち モーダル
@@ -582,17 +770,18 @@ waitingModal.addEventListener('click', e => { if (e.target === waitingModal) clo
 
 waitingForm.addEventListener('submit', async e => {
   e.preventDefault();
-  const code    = $('wFieldCode').value.trim();
-  const current = parseInt($('wFieldCurrent').value);
-  const onKabu  = parseInt($('wFieldOnKabu').value);
-  const avgPrice = parseFloat($('wFieldAvgPrice').value) || 0;
+  const code   = $('wFieldCode').value.trim();
+  const onKabu = parseInt($('wFieldOnKabu').value);
+  const lots   = collectLots('wLotsContainer');
   if (!editingWId && !/^\d{4}$/.test(code)) { alert('証券コードは4桁の数字で入力してください'); return; }
-  if (onKabu >= current) { alert('恩株数は現在保有数より小さくしてください'); return; }
+  if (lots.length === 0) { alert('保有口座を1つ以上入力してください'); return; }
+  const totalShares = lots.reduce((s, l) => s + l.current_shares, 0);
+  if (onKabu >= totalShares) { alert('恩株数は合計保有数より小さくしてください'); return; }
   const btn = $('wSaveBtn');
   btn.disabled = true; btn.textContent = '保存中…';
   try {
-    if (editingWId) await API.put(`/waiting-stocks/${editingWId}`, { on_kabu_shares: onKabu, current_shares: current, avg_acquisition_price: avgPrice });
-    else            await API.post('/waiting-stocks', { code, on_kabu_shares: onKabu, current_shares: current, avg_acquisition_price: avgPrice });
+    if (editingWId) await API.put(`/waiting-stocks/${editingWId}`, { on_kabu_shares: onKabu, lots });
+    else            await API.post('/waiting-stocks', { code, on_kabu_shares: onKabu, lots });
     const fromId = movingFromStockId;
     closeWaitingModal();
     if (fromId) {
@@ -608,19 +797,9 @@ waitingForm.addEventListener('submit', async e => {
 });
 
 // 恩株待ち テーブルボタン
-$('waitingTableBody').addEventListener('click', async e => {
-  const edit   = e.target.closest('.wedit-btn');
-  const del    = e.target.closest('.wdel-btn');
-  const ref    = e.target.closest('.ref-btn');
-  const detail = e.target.closest('.wdetail-btn');
-  if (edit)   { const s = waitingStocks.find(x => x.id == edit.dataset.wid); if (s) openWaitingModal(s); }
-  if (detail) openWaitingDrawer(detail.dataset.code);
-  if (ref)    { Cache.clear(ref.dataset.code); fetchScraped(ref.dataset.code, true); }
-  if (del) {
-    if (!confirm('この銘柄を削除しますか？')) return;
-    try { await API.delete(`/waiting-stocks/${del.dataset.wid}`); waitingStocks = await API.get('/waiting-stocks'); renderWaiting(); }
-    catch (err) { alert(err.message); }
-  }
+$('waitingTableBody').addEventListener('click', e => {
+  const btn = e.target.closest('.action-open-btn');
+  if (btn) openWaitingDrawer(btn.dataset.code);
 });
 
 // ─── 恩株化 モーダル ──────────────────────────────────────────────────────────
@@ -632,10 +811,14 @@ const achievedForm  = $('achievedForm');
 function openAchievedModal(stock = null) {
   editingAId = stock?.id ?? null;
   $('achievedModalTitle').textContent = stock ? '恩株化 編集' : '恩株化 銘柄追加';
-  $('aFieldId').value     = stock?.id ?? '';
-  $('aFieldCode').value   = stock?.code ?? '';
+  $('aFieldId').value      = stock?.id ?? '';
+  $('aFieldCode').value    = stock?.code ?? '';
   $('aFieldCode').disabled = !!stock;
-  $('aFieldShares').value = stock?.current_shares ?? '';
+  $('aFieldShares').value  = stock?.current_shares ?? '';
+  const isNisa = (stock?.is_nisa ?? 1) !== 0;
+  const btn = $('aIsNisaBtn');
+  btn.dataset.nisa = isNisa ? 1 : 0;
+  btn.textContent  = isNisa ? 'NISA' : '非NISA';
   achievedModal.classList.add('open');
   setTimeout(() => $('aFieldCode').focus(), 50);
 }
@@ -645,20 +828,26 @@ function closeAchievedModal() {
   editingAId = null;
 }
 
+$('aIsNisaBtn').addEventListener('click', function() {
+  const next = parseInt(this.dataset.nisa) === 1 ? 0 : 1;
+  this.dataset.nisa = next;
+  this.textContent  = next === 1 ? 'NISA' : '非NISA';
+});
 $('aCancelBtn').addEventListener('click', closeAchievedModal);
 achievedModal.addEventListener('click', e => { if (e.target === achievedModal) closeAchievedModal(); });
 
 achievedForm.addEventListener('submit', async e => {
   e.preventDefault();
-  const code   = $('aFieldCode').value.trim();
-  const shares = parseInt($('aFieldShares').value);
+  const code    = $('aFieldCode').value.trim();
+  const shares  = parseInt($('aFieldShares').value);
+  const is_nisa = parseInt($('aIsNisaBtn').dataset.nisa);
   if (!editingAId && !/^\d{4}$/.test(code)) { alert('証券コードは4桁の数字で入力してください'); return; }
   if (!shares || shares <= 0) { alert('保有数を入力してください'); return; }
   const btn = $('aSaveBtn');
   btn.disabled = true; btn.textContent = '保存中…';
   try {
-    if (editingAId) await API.put(`/achieved-stocks/${editingAId}`, { current_shares: shares });
-    else            await API.post('/achieved-stocks', { code, current_shares: shares });
+    if (editingAId) await API.put(`/achieved-stocks/${editingAId}`, { current_shares: shares, is_nisa });
+    else            await API.post('/achieved-stocks', { code, current_shares: shares, is_nisa });
     closeAchievedModal();
     achievedStocks = await API.get('/achieved-stocks');
     renderAchieved();
@@ -667,16 +856,53 @@ achievedForm.addEventListener('submit', async e => {
   finally { btn.disabled = false; btn.textContent = '保存'; }
 });
 
-$('achievedTableBody').addEventListener('click', async e => {
-  const edit = e.target.closest('.aedit-btn');
-  const del  = e.target.closest('.adel-btn');
-  const ref  = e.target.closest('.ref-btn');
-  if (edit) { const s = achievedStocks.find(x => x.id == edit.dataset.aid); if (s) openAchievedModal(s); }
-  if (ref)  { Cache.clear(ref.dataset.code); fetchScraped(ref.dataset.code, true); }
-  if (del) {
+// 恩株化 テーブルボタン
+$('achievedTableBody').addEventListener('click', e => {
+  const btn = e.target.closest('.action-open-btn');
+  if (btn) openAchievedDrawer(btn.dataset.code);
+});
+
+// ─── ドロワーアクション ────────────────────────────────────────────────────────
+
+$('drawerActions').addEventListener('click', async e => {
+  if (!drawerContext) return;
+  const { type, id, code } = drawerContext;
+
+  if (e.target.closest('.da-edit')) {
+    closeDrawer();
+    if (type === 'purchase')      { const s = stocks.find(x => x.id == id);         if (s) openModal(s); }
+    else if (type === 'waiting')  { const s = waitingStocks.find(x => x.id == id);  if (s) openWaitingModal(s); }
+    else                          { const s = achievedStocks.find(x => x.id == id); if (s) openAchievedModal(s); }
+  } else if (e.target.closest('.da-move')) {
+    closeDrawer();
+    const s = stocks.find(x => x.id == id);
+    if (s) moveToWaiting(s);
+  } else if (e.target.closest('.da-achieve')) {
+    closeDrawer();
+    const s = waitingStocks.find(x => x.id == id);
+    if (s) moveToAchieved(s);
+  } else if (e.target.closest('.da-ref')) {
+    closeDrawer();
+    Cache.clear(code);
+    fetchScraped(code, true);
+  } else if (e.target.closest('.da-del')) {
     if (!confirm('この銘柄を削除しますか？')) return;
-    try { await API.delete(`/achieved-stocks/${del.dataset.aid}`); achievedStocks = await API.get('/achieved-stocks'); renderAchieved(); }
-    catch (err) { alert(err.message); }
+    closeDrawer();
+    try {
+      if (type === 'purchase') {
+        await API.delete(`/stocks/${id}`);
+        stocks = await API.get('/stocks');
+        renderPurchase();
+      } else if (type === 'waiting') {
+        await API.delete(`/waiting-stocks/${id}`);
+        waitingStocks = await API.get('/waiting-stocks');
+        renderWaiting();
+      } else {
+        await API.delete(`/achieved-stocks/${id}`);
+        achievedStocks = await API.get('/achieved-stocks');
+        renderAchieved();
+      }
+    } catch (err) { alert(err.message); }
   }
 });
 

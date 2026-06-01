@@ -220,9 +220,7 @@ async function handleApi(request, env, path) {
 
   // POST /api/stocks
   if (path === '/api/stocks' && method === 'POST') {
-    const body = await request.json();
-    const { code, target_shares, on_kabu_shares, current_shares = 0, avg_acquisition_price = 0 } =
-      body;
+    const { code, target_shares, on_kabu_shares, lots = [], purchase_nisa = 1 } = await request.json();
 
     if (!code || target_shares == null || on_kabu_shares == null) {
       return err('証券コード・目標保有数・恩株数は必須です');
@@ -233,19 +231,23 @@ async function handleApi(request, env, path) {
     if (on_kabu_shares >= target_shares) {
       return err('恩株数は目標保有数より小さくしてください');
     }
+    const totalShares = lots.reduce((s, l) => s + (l.current_shares | 0), 0);
+    const weightedAvg = totalShares > 0
+      ? lots.reduce((s, l) => s + (l.current_shares | 0) * (+l.avg_acquisition_price || 0), 0) / totalShares
+      : 0;
 
     await env.DB.prepare(`
-      INSERT INTO stocks (code, target_shares, on_kabu_shares, current_shares, avg_acquisition_price)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO stocks (code, target_shares, on_kabu_shares, current_shares, avg_acquisition_price, lots, purchase_nisa)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(code) DO UPDATE SET
         target_shares         = excluded.target_shares,
         on_kabu_shares        = excluded.on_kabu_shares,
         current_shares        = excluded.current_shares,
         avg_acquisition_price = excluded.avg_acquisition_price,
+        lots                  = excluded.lots,
+        purchase_nisa         = excluded.purchase_nisa,
         updated_at            = datetime('now')
-    `)
-      .bind(code, target_shares, on_kabu_shares, current_shares, avg_acquisition_price)
-      .run();
+    `).bind(code, target_shares, on_kabu_shares, totalShares, weightedAvg, lots.length ? JSON.stringify(lots) : null, purchase_nisa).run();
 
     return json({ success: true });
   }
@@ -254,12 +256,15 @@ async function handleApi(request, env, path) {
   const updateMatch = path.match(/^\/api\/stocks\/(\d+)$/);
   if (updateMatch && method === 'PUT') {
     const id = updateMatch[1];
-    const { target_shares, on_kabu_shares, current_shares, avg_acquisition_price } =
-      await request.json();
+    const { target_shares, on_kabu_shares, lots = [], purchase_nisa = 1 } = await request.json();
 
     if (on_kabu_shares >= target_shares) {
       return err('恩株数は目標保有数より小さくしてください');
     }
+    const totalShares = lots.reduce((s, l) => s + (l.current_shares | 0), 0);
+    const weightedAvg = totalShares > 0
+      ? lots.reduce((s, l) => s + (l.current_shares | 0) * (+l.avg_acquisition_price || 0), 0) / totalShares
+      : 0;
 
     await env.DB.prepare(`
       UPDATE stocks
@@ -267,11 +272,11 @@ async function handleApi(request, env, path) {
           on_kabu_shares        = ?,
           current_shares        = ?,
           avg_acquisition_price = ?,
+          lots                  = ?,
+          purchase_nisa         = ?,
           updated_at            = datetime('now')
       WHERE id = ?
-    `)
-      .bind(target_shares, on_kabu_shares, current_shares, avg_acquisition_price, id)
-      .run();
+    `).bind(target_shares, on_kabu_shares, totalShares, weightedAvg, lots.length ? JSON.stringify(lots) : null, purchase_nisa, id).run();
 
     return json({ success: true });
   }
@@ -295,44 +300,49 @@ async function handleApi(request, env, path) {
 
   // POST /api/waiting-stocks
   if (path === '/api/waiting-stocks' && method === 'POST') {
-    const { code, on_kabu_shares, current_shares = 0, avg_acquisition_price = 0 } =
-      await request.json();
-    if (!code || on_kabu_shares == null || current_shares == null) {
-      return err('証券コード・恩株数・現在保有数は必須です');
+    const { code, on_kabu_shares, lots } = await request.json();
+    if (!code || on_kabu_shares == null || !Array.isArray(lots) || lots.length === 0) {
+      return err('証券コード・恩株数・保有口座は必須です');
     }
     if (!/^\d{4}$/.test(String(code))) {
       return err('証券コードは4桁の数字で入力してください');
     }
-    if (on_kabu_shares >= current_shares) {
-      return err('恩株数は現在保有数より小さくしてください');
+    const totalShares = lots.reduce((s, l) => s + (l.current_shares | 0), 0);
+    if (on_kabu_shares >= totalShares) {
+      return err('恩株数は合計保有数より小さくしてください');
     }
+    const weightedAvg = lots.reduce((s, l) => s + (l.current_shares | 0) * (+l.avg_acquisition_price || 0), 0) / totalShares;
     await env.DB.prepare(`
-      INSERT INTO waiting_stocks (code, on_kabu_shares, current_shares, avg_acquisition_price)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO waiting_stocks (code, on_kabu_shares, current_shares, avg_acquisition_price, is_nisa, lots)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(code) DO UPDATE SET
         on_kabu_shares        = excluded.on_kabu_shares,
         current_shares        = excluded.current_shares,
         avg_acquisition_price = excluded.avg_acquisition_price,
+        is_nisa               = excluded.is_nisa,
+        lots                  = excluded.lots,
         updated_at            = datetime('now')
-    `).bind(code, on_kabu_shares, current_shares, avg_acquisition_price).run();
+    `).bind(code, on_kabu_shares, totalShares, weightedAvg, 1, JSON.stringify(lots)).run();
     return json({ success: true });
   }
 
   // PUT /api/waiting-stocks/:id
   const waitUpdateMatch = path.match(/^\/api\/waiting-stocks\/(\d+)$/);
   if (waitUpdateMatch && method === 'PUT') {
-    const { on_kabu_shares, current_shares, avg_acquisition_price } = await request.json();
-    if (on_kabu_shares >= current_shares) {
-      return err('恩株数は現在保有数より小さくしてください');
-    }
+    const { on_kabu_shares, lots } = await request.json();
+    if (!Array.isArray(lots) || lots.length === 0) return err('保有口座は必須です');
+    const totalShares = lots.reduce((s, l) => s + (l.current_shares | 0), 0);
+    if (on_kabu_shares >= totalShares) return err('恩株数は合計保有数より小さくしてください');
+    const weightedAvg = lots.reduce((s, l) => s + (l.current_shares | 0) * (+l.avg_acquisition_price || 0), 0) / totalShares;
     await env.DB.prepare(`
       UPDATE waiting_stocks
       SET on_kabu_shares        = ?,
           current_shares        = ?,
           avg_acquisition_price = ?,
+          lots                  = ?,
           updated_at            = datetime('now')
       WHERE id = ?
-    `).bind(on_kabu_shares, current_shares, avg_acquisition_price, waitUpdateMatch[1]).run();
+    `).bind(on_kabu_shares, totalShares, weightedAvg, JSON.stringify(lots), waitUpdateMatch[1]).run();
     return json({ success: true });
   }
 
@@ -355,26 +365,27 @@ async function handleApi(request, env, path) {
 
   // POST /api/achieved-stocks
   if (path === '/api/achieved-stocks' && method === 'POST') {
-    const { code, current_shares } = await request.json();
+    const { code, current_shares, is_nisa = 1 } = await request.json();
     if (!code || current_shares == null) return err('証券コード・保有数は必須です');
     if (!/^\d{4}$/.test(String(code))) return err('証券コードは4桁の数字で入力してください');
     await env.DB.prepare(`
-      INSERT INTO achieved_stocks (code, current_shares)
-      VALUES (?, ?)
+      INSERT INTO achieved_stocks (code, current_shares, is_nisa)
+      VALUES (?, ?, ?)
       ON CONFLICT(code) DO UPDATE SET
         current_shares = excluded.current_shares,
+        is_nisa        = excluded.is_nisa,
         updated_at     = datetime('now')
-    `).bind(code, current_shares).run();
+    `).bind(code, current_shares, is_nisa).run();
     return json({ success: true });
   }
 
   // PUT /api/achieved-stocks/:id
   const achUpdateMatch = path.match(/^\/api\/achieved-stocks\/(\d+)$/);
   if (achUpdateMatch && method === 'PUT') {
-    const { current_shares } = await request.json();
+    const { current_shares, is_nisa = 1 } = await request.json();
     await env.DB.prepare(
-      'UPDATE achieved_stocks SET current_shares = ?, updated_at = datetime(\'now\') WHERE id = ?'
-    ).bind(current_shares, achUpdateMatch[1]).run();
+      'UPDATE achieved_stocks SET current_shares = ?, is_nisa = ?, updated_at = datetime(\'now\') WHERE id = ?'
+    ).bind(current_shares, is_nisa, achUpdateMatch[1]).run();
     return json({ success: true });
   }
 
