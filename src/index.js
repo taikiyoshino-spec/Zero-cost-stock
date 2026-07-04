@@ -407,6 +407,77 @@ async function handleApi(request, env, path) {
     }
   }
 
+  // ── 優待期限 CRUD ─────────────────────────────────────────────────────────────
+
+  // GET /api/benefits
+  if (path === '/api/benefits' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM benefit_expirations ORDER BY expires_at ASC'
+    ).all();
+    return json(results);
+  }
+
+  // POST /api/benefits
+  if (path === '/api/benefits' && method === 'POST') {
+    const { code, company_name = '', memo = '', tag = '', expires_at } = await request.json();
+    if (!code || !expires_at) return err('証券コードと有効期限は必須です');
+    if (!/^\d{4}$/.test(String(code))) return err('証券コードは4桁の数字で入力してください');
+    await env.DB.prepare(
+      'INSERT INTO benefit_expirations (code, company_name, memo, tag, expires_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(code, company_name, memo, tag, expires_at).run();
+    await env.DB.prepare(`
+      INSERT INTO benefit_templates (code, memo, tag)
+      VALUES (?, ?, ?)
+      ON CONFLICT(code) DO UPDATE SET memo = excluded.memo, tag = excluded.tag, updated_at = datetime('now')
+    `).bind(code, memo, tag).run();
+    return json({ success: true });
+  }
+
+  // PUT /api/benefits/:id
+  const benefitUpdateMatch = path.match(/^\/api\/benefits\/(\d+)$/);
+  if (benefitUpdateMatch && method === 'PUT') {
+    const id = benefitUpdateMatch[1];
+    const { company_name = '', memo = '', tag = '', expires_at } = await request.json();
+    if (!expires_at) return err('有効期限は必須です');
+    await env.DB.prepare(`
+      UPDATE benefit_expirations
+      SET company_name = ?, memo = ?, tag = ?, expires_at = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(company_name, memo, tag, expires_at, id).run();
+    const row = await env.DB.prepare('SELECT code FROM benefit_expirations WHERE id = ?').bind(id).first();
+    if (row) {
+      await env.DB.prepare(`
+        INSERT INTO benefit_templates (code, memo, tag)
+        VALUES (?, ?, ?)
+        ON CONFLICT(code) DO UPDATE SET memo = excluded.memo, tag = excluded.tag, updated_at = datetime('now')
+      `).bind(row.code, memo, tag).run();
+    }
+    return json({ success: true });
+  }
+
+  // DELETE /api/benefits/:id
+  const benefitDeleteMatch = path.match(/^\/api\/benefits\/(\d+)$/);
+  if (benefitDeleteMatch && method === 'DELETE') {
+    const id = benefitDeleteMatch[1];
+    const row = await env.DB.prepare('SELECT * FROM benefit_expirations WHERE id = ?').bind(id).first();
+    if (row) {
+      await env.DB.prepare(`
+        INSERT INTO benefit_templates (code, memo, tag)
+        VALUES (?, ?, ?)
+        ON CONFLICT(code) DO UPDATE SET memo = excluded.memo, tag = excluded.tag, updated_at = datetime('now')
+      `).bind(row.code, row.memo, row.tag).run();
+    }
+    await env.DB.prepare('DELETE FROM benefit_expirations WHERE id = ?').bind(id).run();
+    return json({ success: true });
+  }
+
+  // GET /api/benefit-templates/:code
+  const benefitTmplMatch = path.match(/^\/api\/benefit-templates\/(\d{4})$/);
+  if (benefitTmplMatch && method === 'GET') {
+    const row = await env.DB.prepare('SELECT memo, tag FROM benefit_templates WHERE code = ?').bind(benefitTmplMatch[1]).first();
+    return json(row ?? null);
+  }
+
   return err('Not Found', 404);
 }
 

@@ -26,3 +26,21 @@ CREATE TABLE IF NOT EXISTS stocks (
   created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS benefit_expirations (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  code         TEXT    NOT NULL,
+  company_name TEXT    NOT NULL DEFAULT '',
+  memo         TEXT    NOT NULL DEFAULT '',
+  tag          TEXT    NOT NULL DEFAULT '',
+  expires_at   TEXT    NOT NULL,
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS benefit_templates (
+  code       TEXT NOT NULL PRIMARY KEY,
+  memo       TEXT NOT NULL DEFAULT '',
+  tag        TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

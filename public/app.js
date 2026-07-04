@@ -50,6 +50,29 @@ const fmtYen  = n => (n == null || isNaN(n)) ? '—' : `¥${fmt(n)}`;
 const fmtPct  = n => (n == null || isNaN(n)) ? '—' : `${(+n).toFixed(2)}%`;
 const signCls = n => (n == null || isNaN(n)) ? '' : n > 0 ? 'pos' : n < 0 ? 'neg' : '';
 
+function daysUntil(dateStr) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(dateStr); d.setHours(0, 0, 0, 0);
+  return Math.floor((d - today) / 86400000);
+}
+function fmtDaysLeft(days) {
+  if (days < 0) return '期限切れ';
+  if (days === 0) return '今日まで';
+  return `残り${days}日`;
+}
+function expiryRowCls(days) {
+  if (days < 0) return 'expiry-expired';
+  if (days <= 7) return 'expiry-danger';
+  if (days <= 30) return 'expiry-warn';
+  return '';
+}
+function daysCls(days) {
+  if (days < 0) return 'days-left-expired';
+  if (days <= 7) return 'days-left-danger';
+  if (days <= 30) return 'days-left-warn';
+  return '';
+}
+
 function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -217,6 +240,7 @@ let currentTab      = 'purchase';
 let stocks          = [];
 let waitingStocks   = [];
 let achievedStocks  = [];
+let benefits        = [];
 let scraped         = {};
 const loading       = new Set();
 let drawerContext   = null;
@@ -234,6 +258,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     $('tab-purchase').classList.toggle('hidden', currentTab !== 'purchase');
     $('tab-waiting').classList.toggle('hidden',  currentTab !== 'waiting');
     $('tab-achieved').classList.toggle('hidden', currentTab !== 'achieved');
+    $('tab-benefit').classList.toggle('hidden',  currentTab !== 'benefit');
   });
 });
 
@@ -259,7 +284,7 @@ async function fetchScraped(code, force = false) {
   }
 }
 
-function renderBoth() { renderPurchase(); renderWaiting(); renderAchieved(); }
+function renderBoth() { renderPurchase(); renderWaiting(); renderAchieved(); renderBenefits(); }
 
 // ─── ドロワーアクションボタン生成 ─────────────────────────────────────────────
 
@@ -274,6 +299,9 @@ function buildDrawerActions(type) {
   }
   if (type === 'waiting') {
     return `<div class="drawer-action-grid">${edit}${toAchieve}${ref}${del}</div>`;
+  }
+  if (type === 'benefit') {
+    return `<div class="drawer-action-grid">${edit}<div class="drawer-action-span2">${del}</div></div>`;
   }
   return `<div class="drawer-action-grid">${edit}${ref}<div class="drawer-action-span2">${del}</div></div>`;
 }
@@ -404,10 +432,11 @@ function renderAchieved() {
 // ─── データ読み込み ───────────────────────────────────────────────────────────
 
 async function loadAll() {
-  [stocks, waitingStocks, achievedStocks] = await Promise.all([
+  [stocks, waitingStocks, achievedStocks, benefits] = await Promise.all([
     API.get('/stocks'),
     API.get('/waiting-stocks'),
     API.get('/achieved-stocks'),
+    API.get('/benefits'),
   ]);
   renderBoth();
   const allCodes = [...new Set([
@@ -706,9 +735,11 @@ function closeDrawer() {
 $('addBtn').addEventListener('click', () => {
   if (currentTab === 'purchase') openModal();
   else if (currentTab === 'waiting') openWaitingModal();
+  else if (currentTab === 'benefit') openBenefitModal();
   else openAchievedModal();
 });
 $('refreshAllBtn').addEventListener('click', () => {
+  if (currentTab === 'benefit') return;
   const targets = currentTab === 'purchase' ? stocks
     : currentTab === 'waiting' ? waitingStocks
     : achievedStocks;
@@ -872,6 +903,7 @@ $('drawerActions').addEventListener('click', async e => {
     closeDrawer();
     if (type === 'purchase')      { const s = stocks.find(x => x.id == id);         if (s) openModal(s); }
     else if (type === 'waiting')  { const s = waitingStocks.find(x => x.id == id);  if (s) openWaitingModal(s); }
+    else if (type === 'benefit')  { const s = benefits.find(x => x.id == id);       if (s) openBenefitModal(s); }
     else                          { const s = achievedStocks.find(x => x.id == id); if (s) openAchievedModal(s); }
   } else if (e.target.closest('.da-move')) {
     closeDrawer();
@@ -897,6 +929,10 @@ $('drawerActions').addEventListener('click', async e => {
         await API.delete(`/waiting-stocks/${id}`);
         waitingStocks = await API.get('/waiting-stocks');
         renderWaiting();
+      } else if (type === 'benefit') {
+        await API.delete(`/benefits/${id}`);
+        benefits = await API.get('/benefits');
+        renderBenefits();
       } else {
         await API.delete(`/achieved-stocks/${id}`);
         achievedStocks = await API.get('/achieved-stocks');
@@ -910,7 +946,150 @@ $('drawerActions').addEventListener('click', async e => {
 $('drawerClose').addEventListener('click', closeDrawer);
 drawerOverlay.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeModal(); closeWaitingModal(); closeAchievedModal(); closeDrawer(); }
+  if (e.key === 'Escape') { closeModal(); closeWaitingModal(); closeAchievedModal(); closeBenefitModal(); closeDrawer(); }
+});
+
+// ─── 優待期限 描画 ────────────────────────────────────────────────────────────
+
+function renderBenefits() {
+  const tbody = $('benefitTableBody');
+  tbody.innerHTML = '';
+  if (benefits.length === 0) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7"><span class="empty-icon">🎁</span>優待が登録されていません。</td></tr>`;
+    return;
+  }
+  for (const b of benefits) {
+    const days = daysUntil(b.expires_at);
+    const rowCls = expiryRowCls(days);
+    const dCls   = daysCls(days);
+    const tr = document.createElement('tr');
+    if (rowCls) tr.className = rowCls;
+    tr.dataset.bid  = b.id;
+    tr.dataset.code = b.code;
+    tr.innerHTML = `
+      <td class="code-cell"><span class="code-badge">${escHtml(b.code)}</span></td>
+      <td class="name-cell"><span class="company-name">${escHtml(b.company_name || b.code)}</span></td>
+      <td class="code-cell desktop-only">${b.tag ? `<span class="tag-chip">${escHtml(b.tag)}</span>` : '—'}</td>
+      <td class="memo-cell desktop-only">${escHtml(b.memo || '—')}</td>
+      <td class="num-cell">${escHtml(b.expires_at)}</td>
+      <td class="num-cell"><span class="${dCls}">${fmtDaysLeft(days)}</span></td>
+      <td class="action-cell"><button class="btn-icon action-open-btn" data-bid="${b.id}" data-code="${b.code}" title="操作">⋮</button></td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// ─── 優待期限 モーダル ────────────────────────────────────────────────────────
+
+let editingBId = null;
+const benefitModal = $('benefitModal');
+const benefitForm  = $('benefitForm');
+let bFetchTimer    = null;
+
+async function prefillBenefitTemplate(code) {
+  try {
+    const tmpl = await API.get(`/benefit-templates/${code}`);
+    if (!tmpl) return;
+    if (!$('bFieldMemo').value) $('bFieldMemo').value = tmpl.memo || '';
+    if (!$('bFieldTag').value)  $('bFieldTag').value  = tmpl.tag  || '';
+  } catch {}
+}
+
+function openBenefitModal(benefit = null) {
+  editingBId = benefit?.id ?? null;
+  $('benefitModalTitle').textContent = benefit ? '優待期限 編集' : '優待期限 追加';
+  $('bFieldId').value      = benefit?.id ?? '';
+  $('bFieldCode').value    = benefit?.code ?? '';
+  $('bFieldCode').disabled = !!benefit;
+  $('bFieldTag').value     = benefit?.tag ?? '';
+  $('bFieldMemo').value    = benefit?.memo ?? '';
+  $('bFieldExpires').value = benefit?.expires_at ?? '';
+  $('bCompanyHint').textContent = benefit?.company_name ?? '';
+  benefitModal.classList.add('open');
+  setTimeout(() => $('bFieldCode').focus(), 50);
+}
+function closeBenefitModal() {
+  benefitModal.classList.remove('open');
+  benefitForm.reset();
+  $('bCompanyHint').textContent = '';
+  editingBId = null;
+}
+
+// コード入力 → 会社名プレビュー＋テンプレート自動入力
+$('bFieldCode').addEventListener('input', function() {
+  const code = this.value.trim();
+  clearTimeout(bFetchTimer);
+  if (!/^\d{4}$/.test(code)) { $('bCompanyHint').textContent = ''; return; }
+  $('bCompanyHint').textContent = '取得中…';
+  bFetchTimer = setTimeout(async () => {
+    try {
+      let name = scraped[code]?.companyName;
+      if (!name) {
+        const data = await API.get(`/stock-data/${code}`);
+        name = data.companyName;
+        scraped[code] = data;
+        Cache.set(code, data);
+      }
+      $('bCompanyHint').textContent = name || '';
+    } catch { $('bCompanyHint').textContent = ''; }
+    if (!editingBId) await prefillBenefitTemplate(code);
+  }, 600);
+});
+
+benefitForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const code      = $('bFieldCode').value.trim();
+  const tag       = $('bFieldTag').value;
+  const memo      = $('bFieldMemo').value.trim();
+  const expires_at = $('bFieldExpires').value;
+  const company_name = $('bCompanyHint').textContent || scraped[code]?.companyName || code;
+  if (!editingBId && !/^\d{4}$/.test(code)) { alert('証券コードは4桁の数字で入力してください'); return; }
+  if (!expires_at) { alert('有効期限を入力してください'); return; }
+  const btn = $('bSaveBtn');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    if (editingBId) {
+      await API.put(`/benefits/${editingBId}`, { company_name, memo, tag, expires_at });
+    } else {
+      await API.post('/benefits', { code, company_name, memo, tag, expires_at });
+    }
+    closeBenefitModal();
+    benefits = await API.get('/benefits');
+    renderBenefits();
+  } catch (err) { alert(err.message); }
+  finally { btn.disabled = false; btn.textContent = '保存'; }
+});
+
+$('bCancelBtn').addEventListener('click', closeBenefitModal);
+benefitModal.addEventListener('click', e => { if (e.target === benefitModal) closeBenefitModal(); });
+
+// ─── 優待期限 ドロワー ────────────────────────────────────────────────────────
+
+function openBenefitDrawer(id) {
+  const b = benefits.find(x => x.id == id);
+  if (!b) return;
+  const days = daysUntil(b.expires_at);
+  $('drawerTitle').textContent = `${b.code} ${b.company_name || ''}（優待期限）`;
+  $('drawerBody').innerHTML = buildDrawer([
+    { title: '基本情報', rows: [
+      { label: '証券コード', value: escHtml(b.code) },
+      { label: '会社名',     value: escHtml(b.company_name || b.code) },
+      { label: '種類',       value: b.tag ? `<span class="tag-chip">${escHtml(b.tag)}</span>` : '—' },
+    ]},
+    { title: '期限', rows: [
+      { label: '有効期限', value: escHtml(b.expires_at) },
+      { label: '残り日数', value: `<span class="${daysCls(days)}">${fmtDaysLeft(days)}</span>` },
+    ]},
+    ...(b.memo ? [{ title: '優待内容', rows: [{ label: 'メモ', value: escHtml(b.memo) }] }] : []),
+  ]);
+  drawerContext = { type: 'benefit', id: b.id, code: b.code };
+  $('drawerActions').innerHTML = buildDrawerActions('benefit');
+  drawerOverlay.classList.add('open');
+  detailDrawer.classList.add('open');
+}
+
+$('benefitTableBody').addEventListener('click', e => {
+  const btn = e.target.closest('.action-open-btn');
+  if (btn) openBenefitDrawer(btn.dataset.bid);
 });
 
 // ─── 初期化 ────────────────────────────────────────────────────────────────────

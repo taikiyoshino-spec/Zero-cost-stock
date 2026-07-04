@@ -28,6 +28,7 @@
     <button class="tab-btn active" data-tab="purchase">購入検討</button>
     <button class="tab-btn" data-tab="waiting">恩株待ち</button>
     <button class="tab-btn" data-tab="achieved">恩株化</button>
+    <button class="tab-btn" data-tab="benefit">優待期限</button>
   </nav>
 
   <!-- 最終更新時刻 -->
@@ -243,6 +244,74 @@
         <div class="form-actions">
           <button type="button" class="btn-cancel" id="aCancelBtn">キャンセル</button>
           <button type="submit" class="btn-save" id="aSaveBtn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ══ 優待期限タブ ══ -->
+  <div id="tab-benefit" class="tab-panel hidden">
+    <main class="main-content">
+      <div class="table-wrapper">
+        <table id="benefitTable">
+          <thead>
+            <tr>
+              <th class="th-code">コード</th>
+              <th class="th-name">会社名</th>
+              <th class="th-tag desktop-only">種類</th>
+              <th class="th-text desktop-only">優待内容</th>
+              <th class="th-date">有効期限</th>
+              <th class="th-days">残り</th>
+              <th class="th-action">操作</th>
+            </tr>
+          </thead>
+          <tbody id="benefitTableBody"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- ══ 優待期限 モーダル ══ -->
+  <div class="modal-overlay" id="benefitModal" role="dialog" aria-modal="true" aria-labelledby="benefitModalTitle">
+    <div class="modal-box">
+      <h2 class="modal-title" id="benefitModalTitle">優待期限 追加</h2>
+      <form id="benefitForm" novalidate>
+        <input type="hidden" id="bFieldId">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="bFieldCode">証券コード <span class="required">*</span></label>
+            <input type="text" id="bFieldCode" maxlength="4" pattern="\d{4}"
+                   placeholder="例: 8267" inputmode="numeric" required>
+            <span class="field-hint" id="bCompanyHint"></span>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div class="form-group">
+            <label for="bFieldTag">種類</label>
+            <select id="bFieldTag">
+              <option value="">選択</option>
+              <option value="食事券">食事券</option>
+              <option value="割引券">割引券</option>
+              <option value="カタログギフト">カタログギフト</option>
+              <option value="金券">金券</option>
+              <option value="ポイント">ポイント</option>
+              <option value="その他">その他</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="bFieldExpires">有効期限 <span class="required">*</span></label>
+            <input type="date" id="bFieldExpires" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="bFieldMemo">優待内容メモ</label>
+            <textarea id="bFieldMemo" rows="3" placeholder="例: お買い物券500円×3枚"></textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-cancel" id="bCancelBtn">キャンセル</button>
+          <button type="submit" class="btn-save" id="bSaveBtn">保存</button>
         </div>
       </form>
     </div>

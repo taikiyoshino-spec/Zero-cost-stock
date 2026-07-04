@@ -691,3 +691,67 @@ tbody tr:hover td.input-col {
 @media (min-width: 1200px) {
   .main-content { max-width: 1400px; margin: 0 auto; }
 }
+
+/* ─── 優待期限管理 ────────────────────────────────────────────────────────────── */
+.th-date  { text-align: right; min-width: 90px; }
+.th-days  { text-align: right; min-width: 72px; }
+.th-tag   { text-align: left;  min-width: 80px; }
+.th-text  { text-align: left;  min-width: 140px; }
+
+.expiry-warn  { background: #fffbeb !important; }
+.expiry-warn td { background: #fffbeb !important; }
+.expiry-warn:hover { background: #fef3c7 !important; }
+.expiry-warn:hover td { background: #fef3c7 !important; }
+
+.expiry-danger { background: #fef2f2 !important; }
+.expiry-danger td { background: #fef2f2 !important; }
+.expiry-danger:hover { background: #fee2e2 !important; }
+.expiry-danger:hover td { background: #fee2e2 !important; }
+
+.expiry-expired { opacity: .6; }
+.expiry-expired td.action-cell { background: var(--surface) !important; }
+
+.days-left-danger { color: var(--danger); font-weight: 700; }
+.days-left-warn   { color: var(--warn);   font-weight: 700; }
+.days-left-expired { color: var(--text-muted); font-style: italic; }
+
+.tag-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--primary-light);
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.memo-cell {
+  text-align: left;
+  max-width: 200px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  color: var(--text-sub);
+}
+
+/* フォーム：textarea と select */
+.form-group textarea,
+.form-group select {
+  padding: 8px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+.form-group textarea:focus,
+.form-group select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(29,78,216,.12);
+}
+.form-group textarea { resize: vertical; min-height: 72px; }
+.form-group select { cursor: pointer; }
