@@ -236,7 +236,9 @@ function calculateWaiting(stock, scraped) {
 
 // ─── アプリ状態 ───────────────────────────────────────────────────────────────
 
+let currentSection  = 'onkabu';   // 'onkabu' | 'yuutai'
 let currentTab      = 'purchase';
+let currentOnkabuTab = 'purchase';
 let stocks          = [];
 let waitingStocks   = [];
 let achievedStocks  = [];
@@ -251,15 +253,62 @@ const $ = id => document.getElementById(id);
 
 // ─── タブ切り替え ──────────────────────────────────────────────────────────────
 
+function switchSection(section) {
+  currentSection = section;
+
+  // ボトムナビ active 更新
+  document.querySelectorAll('.bottom-nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.section === section);
+  });
+
+  const tabNav = $('tabNav');
+  const subBar = document.querySelector('.sub-bar');
+  const addBtn = $('addBtn');
+
+  if (section === 'onkabu') {
+    tabNav.classList.remove('hidden');
+    subBar.classList.remove('hidden');
+    addBtn.querySelector('.label').textContent = '銘柄追加';
+    // セクション内のタブだけ表示
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      b.classList.toggle('hidden', b.dataset.section !== 'onkabu');
+    });
+    // 最後に使っていたタブに戻す
+    switchTab(currentOnkabuTab);
+  } else {
+    tabNav.classList.add('hidden');
+    subBar.classList.add('hidden');
+    addBtn.querySelector('.label').textContent = '優待追加';
+    currentTab = 'benefit';
+    $('tab-purchase').classList.add('hidden');
+    $('tab-waiting').classList.add('hidden');
+    $('tab-achieved').classList.add('hidden');
+    $('tab-benefit').classList.remove('hidden');
+  }
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  if (document.querySelector(`.tab-btn[data-section="onkabu"]`)) {
+    currentOnkabuTab = tab;
+  }
+  document.querySelectorAll('.tab-btn[data-section="onkabu"]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  $('tab-purchase').classList.toggle('hidden', tab !== 'purchase');
+  $('tab-waiting').classList.toggle('hidden',  tab !== 'waiting');
+  $('tab-achieved').classList.toggle('hidden', tab !== 'achieved');
+  $('tab-benefit').classList.add('hidden');
+}
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    currentTab = btn.dataset.tab;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
-    $('tab-purchase').classList.toggle('hidden', currentTab !== 'purchase');
-    $('tab-waiting').classList.toggle('hidden',  currentTab !== 'waiting');
-    $('tab-achieved').classList.toggle('hidden', currentTab !== 'achieved');
-    $('tab-benefit').classList.toggle('hidden',  currentTab !== 'benefit');
+    if (btn.dataset.section === 'onkabu') switchTab(btn.dataset.tab);
   });
+});
+
+document.querySelectorAll('.bottom-nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchSection(btn.dataset.section));
 });
 
 // ─── スクレイピングデータ取得 ─────────────────────────────────────────────────
@@ -733,13 +782,13 @@ function closeDrawer() {
 // ─── イベントリスナー ──────────────────────────────────────────────────────────
 
 $('addBtn').addEventListener('click', () => {
+  if (currentSection === 'yuutai') { openBenefitModal(); return; }
   if (currentTab === 'purchase') openModal();
   else if (currentTab === 'waiting') openWaitingModal();
-  else if (currentTab === 'benefit') openBenefitModal();
   else openAchievedModal();
 });
 $('refreshAllBtn').addEventListener('click', () => {
-  if (currentTab === 'benefit') return;
+  if (currentSection === 'yuutai') return;
   const targets = currentTab === 'purchase' ? stocks
     : currentTab === 'waiting' ? waitingStocks
     : achievedStocks;

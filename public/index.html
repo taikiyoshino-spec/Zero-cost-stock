@@ -24,11 +24,11 @@
   </header>
 
   <!-- タブナビ -->
-  <nav class="tab-nav">
-    <button class="tab-btn active" data-tab="purchase">購入検討</button>
-    <button class="tab-btn" data-tab="waiting">恩株待ち</button>
-    <button class="tab-btn" data-tab="achieved">恩株化</button>
-    <button class="tab-btn" data-tab="benefit">優待期限</button>
+  <nav class="tab-nav" id="tabNav">
+    <button class="tab-btn active" data-tab="purchase" data-section="onkabu">購入検討</button>
+    <button class="tab-btn" data-tab="waiting" data-section="onkabu">恩株待ち</button>
+    <button class="tab-btn" data-tab="achieved" data-section="onkabu">恩株化</button>
+    <button class="tab-btn hidden" data-tab="benefit" data-section="yuutai">優待期限</button>
   </nav>
 
   <!-- 最終更新時刻 -->
@@ -327,6 +327,18 @@
     <div class="drawer-body" id="drawerBody"></div>
     <div class="drawer-actions" id="drawerActions"></div>
   </div>
+
+  <!-- ボトムナビゲーション -->
+  <nav class="bottom-nav">
+    <button class="bottom-nav-btn active" data-section="onkabu">
+      <span class="bottom-nav-icon">🏦</span>
+      <span>恩株管理</span>
+    </button>
+    <button class="bottom-nav-btn" data-section="yuutai">
+      <span class="bottom-nav-icon">🎁</span>
+      <span>優待管理</span>
+    </button>
+  </nav>
 
   <script src="app.js"></script>
 </body>
