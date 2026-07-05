@@ -1017,7 +1017,10 @@ function renderBenefits() {
     tr.dataset.code = b.code;
     tr.innerHTML = `
       <td class="code-cell"><span class="code-badge">${escHtml(b.code)}</span></td>
-      <td class="name-cell"><span class="company-name">${escHtml(b.company_name || b.code)}</span></td>
+      <td class="name-cell"><span class="company-name">
+        <a class="company-link" href="https://finance.yahoo.co.jp/quote/${b.code}.T" target="_blank" rel="noopener">${escHtml(b.company_name || b.code)}</a>
+        <a class="incentive-link" href="https://finance.yahoo.co.jp/quote/${b.code}.T/incentive" target="_blank" rel="noopener" title="株主優待">優待</a>
+      </span></td>
       <td class="code-cell desktop-only">${b.tag ? `<span class="tag-chip">${escHtml(b.tag)}</span>` : '—'}</td>
       <td class="memo-cell desktop-only">${escHtml(b.memo || '—')}</td>
       <td class="num-cell">${escHtml(b.expires_at)}</td>
