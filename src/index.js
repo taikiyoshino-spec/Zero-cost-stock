@@ -419,12 +419,12 @@ async function handleApi(request, env, path) {
 
   // POST /api/benefits
   if (path === '/api/benefits' && method === 'POST') {
-    const { code, company_name = '', memo = '', tag = '', expires_at } = await request.json();
+    const { code, company_name = '', memo = '', tag = '', shares = 0, expires_at } = await request.json();
     if (!code || !expires_at) return err('証券コードと有効期限は必須です');
     if (!/^\d{4}$/.test(String(code))) return err('証券コードは4桁の数字で入力してください');
     await env.DB.prepare(
-      'INSERT INTO benefit_expirations (code, company_name, memo, tag, expires_at) VALUES (?, ?, ?, ?, ?)'
-    ).bind(code, company_name, memo, tag, expires_at).run();
+      'INSERT INTO benefit_expirations (code, company_name, memo, tag, shares, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(code, company_name, memo, tag, shares, expires_at).run();
     await env.DB.prepare(`
       INSERT INTO benefit_templates (code, memo, tag)
       VALUES (?, ?, ?)
@@ -437,13 +437,13 @@ async function handleApi(request, env, path) {
   const benefitUpdateMatch = path.match(/^\/api\/benefits\/(\d+)$/);
   if (benefitUpdateMatch && method === 'PUT') {
     const id = benefitUpdateMatch[1];
-    const { company_name = '', memo = '', tag = '', expires_at } = await request.json();
+    const { company_name = '', memo = '', tag = '', shares = 0, expires_at } = await request.json();
     if (!expires_at) return err('有効期限は必須です');
     await env.DB.prepare(`
       UPDATE benefit_expirations
-      SET company_name = ?, memo = ?, tag = ?, expires_at = ?, updated_at = datetime('now')
+      SET company_name = ?, memo = ?, tag = ?, shares = ?, expires_at = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).bind(company_name, memo, tag, expires_at, id).run();
+    `).bind(company_name, memo, tag, shares, expires_at, id).run();
     const row = await env.DB.prepare('SELECT code FROM benefit_expirations WHERE id = ?').bind(id).first();
     if (row) {
       await env.DB.prepare(`

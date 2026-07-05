@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS benefit_expirations (
   company_name TEXT    NOT NULL DEFAULT '',
   memo         TEXT    NOT NULL DEFAULT '',
   tag          TEXT    NOT NULL DEFAULT '',
+  shares       INTEGER NOT NULL DEFAULT 0,
   expires_at   TEXT    NOT NULL,
   created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))

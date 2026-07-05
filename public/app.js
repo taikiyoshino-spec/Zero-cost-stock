@@ -341,13 +341,17 @@ function buildDrawerActions(type) {
   const edit    = `<button class="btn-drawer-action da-edit">✏️ 編集</button>`;
   const ref     = `<button class="btn-drawer-action da-ref">↻ 更新</button>`;
   const del     = `<button class="btn-drawer-action danger da-del">🗑️ 削除</button>`;
-  const toWait  = `<button class="btn-drawer-action move da-move">↗ 恩株待ちへ移行</button>`;
+  const toWait    = `<button class="btn-drawer-action move da-move">↗ 恩株待ちへ移行</button>`;
   const toAchieve = `<button class="btn-drawer-action move da-achieve">🎯 恩株化へ移行</button>`;
+  const toYuutai  = `<button class="btn-drawer-action da-benefit-reg">🎁 優待登録</button>`;
   if (type === 'purchase') {
     return `<div class="drawer-action-grid">${edit}${toWait}${ref}${del}</div>`;
   }
   if (type === 'waiting') {
-    return `<div class="drawer-action-grid">${edit}${toAchieve}${ref}${del}</div>`;
+    return `<div class="drawer-action-grid">${edit}${toAchieve}${ref}${toYuutai}<div class="drawer-action-span2">${del}</div></div>`;
+  }
+  if (type === 'achieved') {
+    return `<div class="drawer-action-grid">${edit}${toYuutai}${ref}${del}</div>`;
   }
   if (type === 'benefit') {
     return `<div class="drawer-action-grid">${edit}<div class="drawer-action-span2">${del}</div></div>`;
@@ -962,6 +966,18 @@ $('drawerActions').addEventListener('click', async e => {
     closeDrawer();
     const s = waitingStocks.find(x => x.id == id);
     if (s) moveToAchieved(s);
+  } else if (e.target.closest('.da-benefit-reg')) {
+    closeDrawer();
+    let shares = 0;
+    if (type === 'waiting') {
+      const s = waitingStocks.find(x => x.id == id);
+      shares = s?.on_kabu_shares ?? 0;
+    } else {
+      const s = achievedStocks.find(x => x.id == id);
+      shares = s?.current_shares ?? 0;
+    }
+    const companyName = scraped[code]?.companyName || '';
+    openBenefitModal(null, { code, company_name: companyName, shares });
   } else if (e.target.closest('.da-ref')) {
     closeDrawer();
     Cache.clear(code);
@@ -1004,7 +1020,7 @@ function renderBenefits() {
   const tbody = $('benefitTableBody');
   tbody.innerHTML = '';
   if (benefits.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="7"><span class="empty-icon">🎁</span>優待が登録されていません。</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8"><span class="empty-icon">🎁</span>優待が登録されていません。</td></tr>`;
     return;
   }
   for (const b of benefits) {
@@ -1021,6 +1037,7 @@ function renderBenefits() {
         <a class="company-link" href="https://finance.yahoo.co.jp/quote/${b.code}.T" target="_blank" rel="noopener">${escHtml(b.company_name || b.code)}</a>
         <a class="incentive-link" href="https://finance.yahoo.co.jp/quote/${b.code}.T/incentive" target="_blank" rel="noopener" title="株主優待">優待</a>
       </span></td>
+      <td class="num-cell desktop-only">${b.shares ? fmt(b.shares) + '株' : '—'}</td>
       <td class="code-cell desktop-only">${b.tag ? `<span class="tag-chip">${escHtml(b.tag)}</span>` : '—'}</td>
       <td class="memo-cell desktop-only">${escHtml(b.memo || '—')}</td>
       <td class="num-cell">${escHtml(b.expires_at)}</td>
@@ -1046,18 +1063,26 @@ async function prefillBenefitTemplate(code) {
   } catch {}
 }
 
-function openBenefitModal(benefit = null) {
+function openBenefitModal(benefit = null, prefill = null) {
   editingBId = benefit?.id ?? null;
   $('benefitModalTitle').textContent = benefit ? '優待期限 編集' : '優待期限 追加';
   $('bFieldId').value      = benefit?.id ?? '';
-  $('bFieldCode').value    = benefit?.code ?? '';
-  $('bFieldCode').disabled = !!benefit;
+  $('bFieldCode').value    = benefit?.code ?? prefill?.code ?? '';
+  $('bFieldCode').disabled = !!(benefit) || !!(prefill?.code);
   $('bFieldTag').value     = benefit?.tag ?? '';
   $('bFieldMemo').value    = benefit?.memo ?? '';
+  $('bFieldShares').value  = benefit?.shares || prefill?.shares || '';
   $('bFieldExpires').value = benefit?.expires_at ?? '';
-  $('bCompanyHint').textContent = benefit?.company_name ?? '';
+  $('bCompanyHint').textContent = benefit?.company_name ?? prefill?.company_name ?? '';
   benefitModal.classList.add('open');
-  setTimeout(() => $('bFieldCode').focus(), 50);
+  // 他の株エントリからプリフィルした場合、テンプレートも読み込む
+  if (prefill?.code && !benefit) {
+    setTimeout(() => prefillBenefitTemplate(prefill.code), 100);
+  }
+  setTimeout(() => {
+    if (!$('bFieldCode').disabled) $('bFieldCode').focus();
+    else $('bFieldExpires').focus();
+  }, 50);
 }
 function closeBenefitModal() {
   benefitModal.classList.remove('open');
@@ -1092,6 +1117,7 @@ benefitForm.addEventListener('submit', async e => {
   const code      = $('bFieldCode').value.trim();
   const tag       = $('bFieldTag').value;
   const memo      = $('bFieldMemo').value.trim();
+  const shares    = parseInt($('bFieldShares').value) || 0;
   const expires_at = $('bFieldExpires').value;
   const company_name = $('bCompanyHint').textContent || scraped[code]?.companyName || code;
   if (!editingBId && !/^\d{4}$/.test(code)) { alert('証券コードは4桁の数字で入力してください'); return; }
@@ -1100,9 +1126,9 @@ benefitForm.addEventListener('submit', async e => {
   btn.disabled = true; btn.textContent = '保存中…';
   try {
     if (editingBId) {
-      await API.put(`/benefits/${editingBId}`, { company_name, memo, tag, expires_at });
+      await API.put(`/benefits/${editingBId}`, { company_name, memo, tag, shares, expires_at });
     } else {
-      await API.post('/benefits', { code, company_name, memo, tag, expires_at });
+      await API.post('/benefits', { code, company_name, memo, tag, shares, expires_at });
     }
     closeBenefitModal();
     benefits = await API.get('/benefits');
@@ -1126,6 +1152,7 @@ function openBenefitDrawer(id) {
       { label: '証券コード', value: escHtml(b.code) },
       { label: '会社名',     value: escHtml(b.company_name || b.code) },
       { label: '種類',       value: b.tag ? `<span class="tag-chip">${escHtml(b.tag)}</span>` : '—' },
+      { label: '保有株数',   value: b.shares ? fmt(b.shares) + '株' : '—' },
     ]},
     { title: '期限', rows: [
       { label: '有効期限', value: escHtml(b.expires_at) },
