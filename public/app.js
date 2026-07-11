@@ -1132,6 +1132,33 @@ $('bFieldCode').addEventListener('input', function() {
   }, 600);
 });
 
+// 「Yahoo優待を取得」ボタン：株数変更後に手動で再取得できる
+$('bFetchIncentiveBtn').addEventListener('click', async () => {
+  const code = $('bFieldCode').value.trim();
+  if (!/^\d{4}$/.test(code)) { alert('証券コードを入力してください'); return; }
+  const shares = parseInt($('bFieldShares').value) || 0;
+  const btn = $('bFetchIncentiveBtn');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '取得中…';
+  try {
+    const data = await API.get(`/incentive-info/${code}?shares=${shares}`);
+    if (data?.text) {
+      $('bFieldMemo').value = data.text;
+    } else {
+      btn.textContent = '情報なし';
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+      return;
+    }
+  } catch {
+    btn.textContent = '取得失敗';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = orig;
+});
+
 benefitForm.addEventListener('submit', async e => {
   e.preventDefault();
   const code      = $('bFieldCode').value.trim();
