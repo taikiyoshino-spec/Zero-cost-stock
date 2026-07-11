@@ -1063,6 +1063,18 @@ async function prefillBenefitTemplate(code) {
   } catch {}
 }
 
+async function autoFillIncentiveMemo(code, shares) {
+  if ($('bFieldMemo').value) return; // 既に内容があれば上書きしない
+  const el = $('bFieldMemo');
+  const origPlaceholder = el.placeholder;
+  el.placeholder = 'Yahoo優待情報を取得中…';
+  try {
+    const data = await API.get(`/incentive-info/${code}?shares=${shares}`);
+    if (data?.text && !el.value) el.value = data.text;
+  } catch {}
+  el.placeholder = origPlaceholder;
+}
+
 function openBenefitModal(benefit = null, prefill = null) {
   editingBId = benefit?.id ?? null;
   $('benefitModalTitle').textContent = benefit ? '優待期限 編集' : '優待期限 追加';
@@ -1075,9 +1087,13 @@ function openBenefitModal(benefit = null, prefill = null) {
   $('bFieldExpires').value = benefit?.expires_at ?? '';
   $('bCompanyHint').textContent = benefit?.company_name ?? prefill?.company_name ?? '';
   benefitModal.classList.add('open');
-  // 他の株エントリからプリフィルした場合、テンプレートも読み込む
+  // 他の株エントリからプリフィルした場合、テンプレート→優待情報を順番に読み込む
   if (prefill?.code && !benefit) {
-    setTimeout(() => prefillBenefitTemplate(prefill.code), 100);
+    setTimeout(async () => {
+      await prefillBenefitTemplate(prefill.code);
+      const shares = parseInt($('bFieldShares').value) || 0;
+      await autoFillIncentiveMemo(prefill.code, shares);
+    }, 100);
   }
   setTimeout(() => {
     if (!$('bFieldCode').disabled) $('bFieldCode').focus();
@@ -1108,7 +1124,11 @@ $('bFieldCode').addEventListener('input', function() {
       }
       $('bCompanyHint').textContent = name || '';
     } catch { $('bCompanyHint').textContent = ''; }
-    if (!editingBId) await prefillBenefitTemplate(code);
+    if (!editingBId) {
+      await prefillBenefitTemplate(code);
+      const shares = parseInt($('bFieldShares').value) || 0;
+      await autoFillIncentiveMemo(code, shares);
+    }
   }, 600);
 });
 

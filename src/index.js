@@ -205,6 +205,56 @@ async function scrapeStock(code) {
   };
 }
 
+// ─── 株主優待スクレイピング ────────────────────────────────────────────────────
+
+async function scrapeIncentiveInfo(code, shares) {
+  try {
+    const res = await fetch(
+      `https://finance.yahoo.co.jp/quote/${code}.T/incentive`,
+      { headers: BROWSER_HEADERS }
+    );
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    // ページ本文テキストを抽出
+    let text = '';
+    await new HTMLRewriter()
+      .on('body', { text(chunk) { if (chunk.text) text += chunk.text; } })
+      .transform(new Response(html))
+      .arrayBuffer();
+
+    // 行分割・フィルタリング
+    const lines = text
+      .split(/[\n。]/)
+      .map(s => s.replace(/\s+/g, ' ').trim())
+      .filter(s => s.length >= 6 && s.length <= 200);
+
+    // 優待関連行を抽出
+    const relevant = lines.filter(s =>
+      /(優待|割引券|食事券|商品券|ギフト|カタログ|クーポン|ポイント|円分|無料|サービス|お食事|お買い物)/.test(s) &&
+      /\d/.test(s)
+    );
+    if (!relevant.length) return null;
+
+    // 保有株数に対応したティアを選択
+    if (shares > 0) {
+      const tiers = relevant
+        .map(line => {
+          const m = line.match(/(\d[\d,]*)\s*(株|単元)/);
+          const threshold = m
+            ? parseInt(m[1].replace(/,/g, '')) * (m[2] === '単元' ? 100 : 1)
+            : 0;
+          return { line, threshold };
+        })
+        .filter(t => t.threshold > 0 && t.threshold <= shares)
+        .sort((a, b) => b.threshold - a.threshold);
+      if (tiers.length) return tiers[0].line;
+    }
+
+    return relevant.slice(0, 3).join('\n');
+  } catch { return null; }
+}
+
 // ─── API ルーティング ──────────────────────────────────────────────────────────
 
 async function handleApi(request, env, path) {
@@ -476,6 +526,15 @@ async function handleApi(request, env, path) {
   if (benefitTmplMatch && method === 'GET') {
     const row = await env.DB.prepare('SELECT memo, tag FROM benefit_templates WHERE code = ?').bind(benefitTmplMatch[1]).first();
     return json(row ?? null);
+  }
+
+  // GET /api/incentive-info/:code?shares=N
+  const incentiveInfoMatch = path.match(/^\/api\/incentive-info\/(\d{4})$/);
+  if (incentiveInfoMatch && method === 'GET') {
+    const reqUrl = new URL(request.url);
+    const shares = parseInt(reqUrl.searchParams.get('shares')) || 0;
+    const text = await scrapeIncentiveInfo(incentiveInfoMatch[1], shares);
+    return json({ text: text ?? null });
   }
 
   return err('Not Found', 404);
