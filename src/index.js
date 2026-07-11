@@ -216,42 +216,72 @@ async function scrapeIncentiveInfo(code, shares) {
     if (!res.ok) return null;
     const html = await res.text();
 
-    // ページ本文テキストを抽出
-    let text = '';
+    // テーブル行ごとにセルをペアで抽出（<td>が別セルに分かれているケースに対応）
+    const rows = [];
+    let currentRow = [];
+    let currentCell = '';
+
     await new HTMLRewriter()
-      .on('body', { text(chunk) { if (chunk.text) text += chunk.text; } })
+      .on('tr', {
+        element(el) {
+          currentRow = [];
+          el.onEndTag(() => {
+            if (currentRow.length >= 2) rows.push([...currentRow]);
+            currentRow = [];
+          });
+        }
+      })
+      .on('td, th', {
+        element(el) {
+          currentCell = '';
+          el.onEndTag(() => {
+            const t = currentCell.trim();
+            if (t) currentRow.push(t);
+            currentCell = '';
+          });
+        },
+        text(chunk) { if (chunk.text) currentCell += chunk.text; }
+      })
       .transform(new Response(html))
       .arrayBuffer();
 
-    // 行分割・フィルタリング
-    const lines = text
+    // 「X株以上」「X単元以上」を含む行をティアとして認識
+    const tierRows = rows.filter(row => /\d[\d,]*(株|単元)以上/.test(row[0]));
+
+    if (tierRows.length > 0) {
+      if (shares > 0) {
+        // 保有株数以下の最高ティアを選択
+        const qualifying = tierRows
+          .map(row => {
+            const m = row[0].match(/(\d[\d,]*)\s*(株|単元)/);
+            const threshold = m
+              ? parseInt(m[1].replace(/,/g, '')) * (m[2] === '単元' ? 100 : 1)
+              : 0;
+            return { text: `${row[0]}：${row.slice(1).join(' ')}`, threshold };
+          })
+          .filter(t => t.threshold > 0 && t.threshold <= shares)
+          .sort((a, b) => b.threshold - a.threshold);
+        if (qualifying.length) return qualifying[0].text;
+      }
+      // 株数不明・該当なし → 全ティアを列挙
+      return tierRows.map(row => `${row[0]}：${row.slice(1).join(' ')}`).join('\n');
+    }
+
+    // フォールバック：本文テキストからキーワード行を抽出
+    let bodyText = '';
+    await new HTMLRewriter()
+      .on('body', { text(chunk) { if (chunk.text) bodyText += chunk.text; } })
+      .transform(new Response(html))
+      .arrayBuffer();
+    const lines = bodyText
       .split(/[\n。]/)
       .map(s => s.replace(/\s+/g, ' ').trim())
       .filter(s => s.length >= 6 && s.length <= 200);
-
-    // 優待関連行を抽出
     const relevant = lines.filter(s =>
-      /(優待|割引券|食事券|商品券|ギフト|カタログ|クーポン|ポイント|円分|無料|サービス|お食事|お買い物)/.test(s) &&
+      /(優待|割引券|食事券|商品券|ギフト|カタログ|クーポン|ポイント|円分|お食事|お買い物)/.test(s) &&
       /\d/.test(s)
     );
-    if (!relevant.length) return null;
-
-    // 保有株数に対応したティアを選択
-    if (shares > 0) {
-      const tiers = relevant
-        .map(line => {
-          const m = line.match(/(\d[\d,]*)\s*(株|単元)/);
-          const threshold = m
-            ? parseInt(m[1].replace(/,/g, '')) * (m[2] === '単元' ? 100 : 1)
-            : 0;
-          return { line, threshold };
-        })
-        .filter(t => t.threshold > 0 && t.threshold <= shares)
-        .sort((a, b) => b.threshold - a.threshold);
-      if (tiers.length) return tiers[0].line;
-    }
-
-    return relevant.slice(0, 3).join('\n');
+    return relevant.slice(0, 3).join('\n') || null;
   } catch { return null; }
 }
 
