@@ -252,9 +252,14 @@ tbody tr:hover td.action-cell {
 /* ─── テーブル行・セル ──────────────────────────────────────────────────────── */
 tbody tr {
   transition: background .1s;
-  cursor: default;
+  cursor: pointer;
 }
+tbody tr.empty-row { cursor: default; }
 tbody tr:hover { background: #f8fafc; }
+tbody tr.selected,
+tbody tr.selected td { background: var(--primary-light) !important; }
+tbody tr.selected:hover,
+tbody tr.selected:hover td { background: #bfdbfe !important; }
 tbody tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
 tbody td {
   padding: 10px 10px;

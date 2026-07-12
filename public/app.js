@@ -365,7 +365,7 @@ function renderPurchase() {
   const tbody = $('tableBody');
   tbody.innerHTML = '';
   if (stocks.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="14"><span class="empty-icon">📋</span>銘柄が登録されていません。</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="13"><span class="empty-icon">📋</span>銘柄が登録されていません。</td></tr>`;
     return;
   }
   for (const stock of stocks) {
@@ -388,8 +388,7 @@ function renderPurchase() {
       <td class="num-cell desktop-only input-col">${fmt(stock.on_kabu_shares)}</td>
       <td class="num-cell desktop-only input-col">${fmt(stock.current_shares)}</td>
       <td class="num-cell desktop-only input-col">${stock.current_shares > 0 ? fmtYen(stock.avg_acquisition_price) : '—'}</td>
-      <td class="num-cell ${signCls(cv.profitLoss)}">${fmtYen(cv.profitLoss)}</td>
-      <td class="action-cell"><button class="btn-icon action-open-btn" data-id="${stock.id}" data-code="${stock.code}" title="操作">⋮</button></td>`;
+      <td class="num-cell ${signCls(cv.profitLoss)}">${fmtYen(cv.profitLoss)}</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -400,7 +399,7 @@ function renderWaiting() {
   const tbody = $('waitingTableBody');
   tbody.innerHTML = '';
   if (waitingStocks.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="15"><span class="empty-icon">📋</span>銘柄が登録されていません。</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="14"><span class="empty-icon">📋</span>銘柄が登録されていません。</td></tr>`;
     return;
   }
   for (const stock of waitingStocks) {
@@ -424,8 +423,7 @@ function renderWaiting() {
       <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>
       <td class="num-cell desktop-only input-col">${fmt(cv.totalShares)}</td>
       <td class="num-cell desktop-only input-col">${fmt(stock.on_kabu_shares)}</td>
-      <td class="num-cell desktop-only input-col">${fmtYen(cv.weightedAvg)}</td>
-      <td class="action-cell"><button class="btn-icon action-open-btn" data-wid="${stock.id}" data-code="${stock.code}" title="操作">⋮</button></td>`;
+      <td class="num-cell desktop-only input-col">${fmtYen(cv.weightedAvg)}</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -454,7 +452,7 @@ function renderAchieved() {
   $('achievedTotalDiv').textContent    = placeholder ?? fmtYen(totalDiv);
 
   if (achievedStocks.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8"><span class="empty-icon">📋</span>銘柄が登録されていません。</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7"><span class="empty-icon">📋</span>銘柄が登録されていません。</td></tr>`;
     return;
   }
   for (const stock of achievedStocks) {
@@ -476,8 +474,7 @@ function renderAchieved() {
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(currentDiv))}</td>
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(p))}</td>
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>
-      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : (d != null ? fmtYen(d) : '—'))}</td>
-      <td class="action-cell"><button class="btn-icon action-open-btn" data-aid="${stock.id}" data-code="${stock.code}" title="操作">⋮</button></td>`;
+      <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : (d != null ? fmtYen(d) : '—'))}</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -640,6 +637,28 @@ function closeWaitingModal() {
 const detailDrawer  = $('detailDrawer');
 const drawerOverlay = $('drawerOverlay');
 
+// ─── 行タップ選択ロジック ─────────────────────────────────────────────────────
+let selectedTr = null;
+
+function clearSelection() {
+  if (selectedTr) { selectedTr.classList.remove('selected'); selectedTr = null; }
+}
+
+// 1回目タップ → 選択ハイライト、2回目タップ → ドロワーを開く
+// <a> リンクはそのまま通す
+function handleRowTap(e, openFn) {
+  if (e.target.closest('a')) return;
+  const tr = e.target.closest('tr[data-code]');
+  if (!tr) return;
+  if (tr === selectedTr) {
+    openFn(tr);
+  } else {
+    clearSelection();
+    selectedTr = tr;
+    tr.classList.add('selected');
+  }
+}
+
 function buildDrawer(sections) {
   return sections.map(sec => `
     <div class="drawer-section">
@@ -781,6 +800,7 @@ function closeDrawer() {
   drawerOverlay.classList.remove('open');
   detailDrawer.classList.remove('open');
   drawerContext = null;
+  clearSelection();
 }
 
 // ─── イベントリスナー ──────────────────────────────────────────────────────────
@@ -837,10 +857,9 @@ stockForm.addEventListener('submit', async e => {
   finally { btn.disabled = false; btn.textContent = '保存'; }
 });
 
-// 購入検討 テーブルボタン
+// 購入検討 テーブル行タップ
 $('tableBody').addEventListener('click', e => {
-  const btn = e.target.closest('.action-open-btn');
-  if (btn) openDrawer(btn.dataset.code);
+  handleRowTap(e, tr => openDrawer(tr.dataset.code));
 });
 
 // 恩株待ち 口座追加ボタン
@@ -880,10 +899,9 @@ waitingForm.addEventListener('submit', async e => {
   finally { btn.disabled = false; btn.textContent = '保存'; }
 });
 
-// 恩株待ち テーブルボタン
+// 恩株待ち テーブル行タップ
 $('waitingTableBody').addEventListener('click', e => {
-  const btn = e.target.closest('.action-open-btn');
-  if (btn) openWaitingDrawer(btn.dataset.code);
+  handleRowTap(e, tr => openWaitingDrawer(tr.dataset.code));
 });
 
 // ─── 恩株化 モーダル ──────────────────────────────────────────────────────────
@@ -940,10 +958,9 @@ achievedForm.addEventListener('submit', async e => {
   finally { btn.disabled = false; btn.textContent = '保存'; }
 });
 
-// 恩株化 テーブルボタン
+// 恩株化 テーブル行タップ
 $('achievedTableBody').addEventListener('click', e => {
-  const btn = e.target.closest('.action-open-btn');
-  if (btn) openAchievedDrawer(btn.dataset.code);
+  handleRowTap(e, tr => openAchievedDrawer(tr.dataset.code));
 });
 
 // ─── ドロワーアクション ────────────────────────────────────────────────────────
@@ -1020,7 +1037,7 @@ function renderBenefits() {
   const tbody = $('benefitTableBody');
   tbody.innerHTML = '';
   if (benefits.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8"><span class="empty-icon">🎁</span>優待が登録されていません。</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7"><span class="empty-icon">🎁</span>優待が登録されていません。</td></tr>`;
     return;
   }
   for (const b of benefits) {
@@ -1041,8 +1058,7 @@ function renderBenefits() {
       <td class="code-cell desktop-only">${b.tag ? `<span class="tag-chip">${escHtml(b.tag)}</span>` : '—'}</td>
       <td class="memo-cell desktop-only">${escHtml(b.memo || '—')}</td>
       <td class="num-cell">${escHtml(b.expires_at)}</td>
-      <td class="num-cell"><span class="${dCls}">${fmtDaysLeft(days)}</span></td>
-      <td class="action-cell"><button class="btn-icon action-open-btn" data-bid="${b.id}" data-code="${b.code}" title="操作">⋮</button></td>`;
+      <td class="num-cell"><span class="${dCls}">${fmtDaysLeft(days)}</span></td>`;
     tbody.appendChild(tr);
   }
 }
@@ -1213,9 +1229,9 @@ function openBenefitDrawer(id) {
   detailDrawer.classList.add('open');
 }
 
+// 優待期限 テーブル行タップ
 $('benefitTableBody').addEventListener('click', e => {
-  const btn = e.target.closest('.action-open-btn');
-  if (btn) openBenefitDrawer(btn.dataset.bid);
+  handleRowTap(e, tr => openBenefitDrawer(tr.dataset.bid));
 });
 
 // ─── 初期化 ────────────────────────────────────────────────────────────────────
