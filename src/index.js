@@ -216,10 +216,10 @@ async function scrapeIncentiveInfo(code, shares) {
     if (!res.ok) return null;
     const html = await res.text();
 
-    // テーブル行ごとにセルをペアで抽出（<td>が別セルに分かれているケースに対応）
+    // ── 1. テーブル行をセルペアで抽出 ─────────────────────────────────────────
     const rows = [];
     let currentRow = [];
-    let currentCell = '';
+    let cellBuf = '';
 
     await new HTMLRewriter()
       .on('tr', {
@@ -233,24 +233,47 @@ async function scrapeIncentiveInfo(code, shares) {
       })
       .on('td, th', {
         element(el) {
-          currentCell = '';
+          cellBuf = '';
           el.onEndTag(() => {
-            const t = currentCell.trim();
+            const t = cellBuf.trim();
             if (t) currentRow.push(t);
-            currentCell = '';
+            cellBuf = '';
           });
         },
-        text(chunk) { if (chunk.text) currentCell += chunk.text; }
+        text(chunk) { if (chunk.text) cellBuf += chunk.text; }
       })
       .transform(new Response(html))
       .arrayBuffer();
 
-    // 「X株以上」「X単元以上」を含む行をティアとして認識
+    // ── 2. カテゴリ見出し（テーブル直前のテキスト）を正規表現で抽出 ───────────
+    // スクリプト・スタイルを除いた HTML から「株以上」より前の部分を対象にする
+    const strippedHtml = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '');
+    let categoryLabel = '';
+    const firstTierPos = strippedHtml.indexOf('株以上');
+    if (firstTierPos > 0) {
+      const beforeTiers = strippedHtml.substring(0, firstTierPos);
+      // タグ間のテキストのうち、優待種別キーワードを含む最後のものをカテゴリ名とする
+      const matches = [
+        ...beforeTiers.matchAll(/>([^<>]{4,60}(?:券|ギフト|カタログ|割引|食事|お買|商品|ポイント|QUO|図書|クーポン)[^<>]{0,30})</g)
+      ];
+      if (matches.length > 0) {
+        const candidate = matches[matches.length - 1][1].trim();
+        if (!/株主優待の内容|ランキング|TOP\d|おすすめ/.test(candidate)) {
+          categoryLabel = candidate;
+        }
+      }
+    }
+
+    // ── 3. ティア選択と結果生成 ───────────────────────────────────────────────
     const tierRows = rows.filter(row => /\d[\d,]*(株|単元)以上/.test(row[0]));
 
     if (tierRows.length > 0) {
+      const buildResult = (tierText) =>
+        categoryLabel ? `${categoryLabel}\n${tierText}` : tierText;
+
       if (shares > 0) {
-        // 保有株数以下の最高ティアを選択
         const qualifying = tierRows
           .map(row => {
             const m = row[0].match(/(\d[\d,]*)\s*(株|単元)/);
@@ -261,13 +284,13 @@ async function scrapeIncentiveInfo(code, shares) {
           })
           .filter(t => t.threshold > 0 && t.threshold <= shares)
           .sort((a, b) => b.threshold - a.threshold);
-        if (qualifying.length) return qualifying[0].text;
+        if (qualifying.length) return buildResult(qualifying[0].text);
       }
       // 株数不明・該当なし → 全ティアを列挙
-      return tierRows.map(row => `${row[0]}：${row.slice(1).join(' ')}`).join('\n');
+      return buildResult(tierRows.map(row => `${row[0]}：${row.slice(1).join(' ')}`).join('\n'));
     }
 
-    // フォールバック：本文テキストからキーワード行を抽出
+    // ── フォールバック：本文テキストからキーワード行を抽出 ────────────────────
     let bodyText = '';
     await new HTMLRewriter()
       .on('body', { text(chunk) { if (chunk.text) bodyText += chunk.text; } })
