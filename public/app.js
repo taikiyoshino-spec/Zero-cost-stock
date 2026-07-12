@@ -971,7 +971,7 @@ $('drawerActions').addEventListener('click', async e => {
     let shares = 0;
     if (type === 'waiting') {
       const s = waitingStocks.find(x => x.id == id);
-      shares = s?.on_kabu_shares ?? 0;
+      shares = s?.current_shares ?? 0;
     } else {
       const s = achievedStocks.find(x => x.id == id);
       shares = s?.current_shares ?? 0;
