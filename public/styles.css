@@ -376,6 +376,13 @@ tbody tr:hover td.input-col {
   color: var(--warn);
   font-size: 11px;
 }
+.rise-rate {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--danger);
+  letter-spacing: .02em;
+}
 .empty-row td {
   text-align: center !important;
   padding: 52px 16px !important;

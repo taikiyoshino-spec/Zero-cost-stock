@@ -79,6 +79,13 @@ function escHtml(s) {
 const loadingSpan = () => '<span class="cell-loading">読込中</span>';
 const errSpan     = () => '<span class="cell-error">取得失敗</span>';
 
+// 恩株差がマイナスのとき、現在株価に対する必要上昇率を表示
+function riseRateHtml(onKabuDiff, closingPrice) {
+  if (onKabuDiff == null || closingPrice == null || closingPrice === 0 || onKabuDiff >= 0) return '';
+  const rate = (-onKabuDiff / closingPrice * 100).toFixed(1);
+  return `<span class="rise-rate">↑${rate}%</span>`;
+}
+
 function nameHtml(code, s, isLoad, hasErr) {
   if (isLoad) return loadingSpan();
   if (hasErr) return errSpan();
@@ -378,7 +385,7 @@ function renderPurchase() {
     tr.innerHTML = `
       <td class="code-cell"><span class="code-badge">${stock.code}</span></td>
       <td class="name-cell"><span class="company-name">${nameHtml(stock.code, s, isLoad, hasErr)}</span></td>
-      <td class="num-cell ${signCls(cv.onKabuDiff)}">${fmtYen(cv.onKabuDiff)}</td>
+      <td class="num-cell ${signCls(cv.onKabuDiff)}">${fmtYen(cv.onKabuDiff)}${riseRateHtml(cv.onKabuDiff, s?.closingPrice)}</td>
       <td class="num-cell">${fmtYen(cv.purchaseAmt)}</td>
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(s?.closingPrice))}</td>
       <td class="num-cell">${fmt(cv.purchaseCount)}</td>
@@ -412,7 +419,7 @@ function renderWaiting() {
     tr.innerHTML = `
       <td class="code-cell"><span class="code-badge">${stock.code}</span></td>
       <td class="name-cell"><span class="company-name">${nameHtml(stock.code, s, isLoad, hasErr)}</span></td>
-      <td class="num-cell ${signCls(cv.onKabuDiff)}">${fmtYen(cv.onKabuDiff)}</td>
+      <td class="num-cell ${signCls(cv.onKabuDiff)}">${fmtYen(cv.onKabuDiff)}${riseRateHtml(cv.onKabuDiff, s?.closingPrice)}</td>
       <td class="num-cell">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(s?.closingPrice))}</td>
       <td class="num-cell">${fmtYen(cv.sellPrice)}</td>
       <td class="num-cell">${fmtYen(cv.currentSell)}</td>
