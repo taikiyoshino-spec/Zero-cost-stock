@@ -225,8 +225,8 @@ function extractBenefitMonths(html) {
 }
 
 async function extractDividendMonths(html) {
-  // "1株当たり配当金の推移" テーブルを HTMLRewriter で行×列解析
-  // 第1〜4四半期が列ヘッダー、予想・実績が行になっている前提
+  // "1株当たり配当金の推移" テーブル: 第1〜4四半期が行ラベル、予想・実績が列
+  // 各四半期行に 0 より大きい数値があればその四半期に配当あり
   const start = html.indexOf('1株当たり配当金の推移');
   if (start < 0) return [];
   const sectionHtml = html.substring(start, start + 10000);
@@ -257,44 +257,37 @@ async function extractDividendMonths(html) {
     })
     .transform(new Response(sectionHtml)).arrayBuffer();
 
-  // "yyyy年m月期" から決算月を取得、第X四半期の列インデックスを記録
+  // "yyyy年m月期" から決算月を取得
   let fiscalEndMonth = null;
-  let headerRowIdx = -1;
-  const qColMap = {}; // 四半期番号 → 列インデックス
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    if (!fiscalEndMonth) {
-      for (const cell of row) {
-        const fm = cell.match(/\d{4}年(\d{1,2})月期/);
-        if (fm) { fiscalEndMonth = parseInt(fm[1]); break; }
-      }
+  for (const row of rows) {
+    for (const cell of row) {
+      const fm = cell.match(/\d{4}年(\d{1,2})月期/);
+      if (fm) { fiscalEndMonth = parseInt(fm[1]); break; }
     }
-    if (headerRowIdx < 0 && row.some(c => /第[1-4]四半期/.test(c))) {
-      headerRowIdx = i;
-      row.forEach((cell, idx) => {
-        const qm = cell.match(/第([1-4])四半期/);
-        if (qm) qColMap[parseInt(qm[1])] = idx;
-      });
-    }
-    if (fiscalEndMonth && headerRowIdx >= 0) break;
+    if (fiscalEndMonth) break;
   }
+  if (!fiscalEndMonth) return [];
 
-  if (!fiscalEndMonth || Object.keys(qColMap).length === 0) return [];
-
-  // ヘッダー行の直後の行（予想・実績）を確認し、0より大きい値がある四半期を配当月として登録
+  // 第X四半期が行ラベルの行を探し、その行に 0 より大きい数値があれば配当月として登録
   const months = new Set();
-  const limit = Math.min(rows.length, headerRowIdx + 6);
-  for (let i = headerRowIdx + 1; i < limit; i++) {
-    const row = rows[i];
-    for (const [q, colIdx] of Object.entries(qColMap)) {
-      const val = colIdx < row.length ? row[colIdx] : '';
-      if (val && val !== '-' && parseFloat(val) > 0) {
-        const qNum = parseInt(q);
-        const offset = (4 - qNum) * 3;
-        const month = ((fiscalEndMonth - 1 - offset) % 12 + 12) % 12 + 1;
-        months.add(month);
-      }
+  for (const row of rows) {
+    let qNum = null;
+    for (const cell of row) {
+      const qm = cell.match(/第([1-4])四半期/);
+      if (qm) { qNum = parseInt(qm[1]); break; }
+    }
+    if (!qNum) continue;
+
+    const hasPositive = row.some(cell => {
+      if (/第[1-4]四半期/.test(cell)) return false; // ラベル自体は除外
+      const v = parseFloat(cell);
+      return !isNaN(v) && v > 0;
+    });
+
+    if (hasPositive) {
+      const offset = (4 - qNum) * 3;
+      const month = ((fiscalEndMonth - 1 - offset) % 12 + 12) % 12 + 1;
+      months.add(month);
     }
   }
 
