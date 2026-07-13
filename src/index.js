@@ -225,13 +225,9 @@ function extractBenefitMonths(html) {
 }
 
 async function extractDividendMonths(html) {
-  // "1株当たり配当金の推移" テーブル: 第1〜4四半期が行ラベル、予想・実績が列
-  // 各四半期行に 0 より大きい数値があればその四半期に配当あり
-  const start = html.indexOf('1株当たり配当金の推移');
-  if (start < 0) return [];
-  const sectionHtml = html.substring(start, start + 10000);
-
-  // テーブルのセルを行として収集
+  // 配当ページ全体からテーブル行を収集し、
+  // "yyyy年m月期" 行の近く(15行以内)で 第1〜4四半期が2個以上ある列ヘッダー行を見つけ、
+  // その直後の予想・実績行から 0 より大きい値がある四半期を配当月として登録
   const rows = [];
   let currentRow = [];
   let cellBuf = '';
@@ -255,39 +251,48 @@ async function extractDividendMonths(html) {
       },
       text(chunk) { cellBuf += chunk.text; },
     })
-    .transform(new Response(sectionHtml)).arrayBuffer();
+    .transform(new Response(html)).arrayBuffer();
 
-  // "yyyy年m月期" から決算月を取得
+  // "yyyy年m月期" を含む行から決算月と行インデックスを取得
   let fiscalEndMonth = null;
-  for (const row of rows) {
-    for (const cell of row) {
+  let fiscalRowIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    for (const cell of rows[i]) {
       const fm = cell.match(/\d{4}年(\d{1,2})月期/);
-      if (fm) { fiscalEndMonth = parseInt(fm[1]); break; }
+      if (fm) { fiscalEndMonth = parseInt(fm[1]); fiscalRowIdx = i; break; }
     }
     if (fiscalEndMonth) break;
   }
   if (!fiscalEndMonth) return [];
 
-  // 第X四半期が行ラベルの行を探し、その行に 0 より大きい数値があれば配当月として登録
-  const months = new Set();
-  for (const row of rows) {
-    let qNum = null;
-    for (const cell of row) {
-      const qm = cell.match(/第([1-4])四半期/);
-      if (qm) { qNum = parseInt(qm[1]); break; }
+  // 決算月行から15行以内で 第X四半期が2個以上ある行を列ヘッダーとして認識
+  let headerRowIdx = -1;
+  const qColMap = {};
+  for (let i = fiscalRowIdx; i < Math.min(rows.length, fiscalRowIdx + 15); i++) {
+    const qCells = rows[i].filter(c => /第[1-4]四半期/.test(c));
+    if (qCells.length >= 2) {
+      headerRowIdx = i;
+      rows[i].forEach((cell, idx) => {
+        const qm = cell.match(/第([1-4])四半期/);
+        if (qm) qColMap[parseInt(qm[1])] = idx;
+      });
+      break;
     }
-    if (!qNum) continue;
+  }
+  if (headerRowIdx < 0 || Object.keys(qColMap).length === 0) return [];
 
-    const hasPositive = row.some(cell => {
-      if (/第[1-4]四半期/.test(cell)) return false; // ラベル自体は除外
-      const v = parseFloat(cell);
-      return !isNaN(v) && v > 0;
-    });
-
-    if (hasPositive) {
-      const offset = (4 - qNum) * 3;
-      const month = ((fiscalEndMonth - 1 - offset) % 12 + 12) % 12 + 1;
-      months.add(month);
+  // 列ヘッダー行の直後6行(予想・実績)を確認
+  const months = new Set();
+  for (let i = headerRowIdx + 1; i < Math.min(rows.length, headerRowIdx + 6); i++) {
+    const row = rows[i];
+    for (const [q, colIdx] of Object.entries(qColMap)) {
+      if (colIdx >= row.length) continue;
+      const v = parseFloat(row[colIdx]);
+      if (!isNaN(v) && v > 0) {
+        const offset = (4 - parseInt(q)) * 3;
+        const month = ((fiscalEndMonth - 1 - offset) % 12 + 12) % 12 + 1;
+        months.add(month);
+      }
     }
   }
 
