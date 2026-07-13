@@ -225,16 +225,24 @@ function extractBenefitMonths(html) {
 }
 
 function extractDividendMonths(html) {
-  // 配当ページ: "権利確定" セクションの "X月XX日" を抽出（具体日付形式）
+  // "1株当たり配当金の推移" セクションから "yyyy年m月期" を検索
+  // 今月〜来年末の範囲に絞って配当月を抽出
   const months = new Set();
-  const start = html.indexOf('権利確定');
+  const start = html.indexOf('1株当たり配当金の推移');
   if (start < 0) return [];
   const section = normalize(html.substring(start, start + 8000));
-  const regex = /(\d{1,2})月\d{1,2}日/g;
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+  const nextYear = curYear + 1;
+  const regex = /(\d{4})年(\d{1,2})月期/g;
   let m;
   while ((m = regex.exec(section)) !== null) {
-    const n = parseInt(m[1]);
-    if (n >= 1 && n <= 12) months.add(n);
+    const year = parseInt(m[1]);
+    const month = parseInt(m[2]);
+    if ((year === curYear && month >= curMonth) || year === nextYear) {
+      if (month >= 1 && month <= 12) months.add(month);
+    }
   }
   return [...months].sort((a, b) => a - b);
 }
