@@ -215,13 +215,42 @@ async function scrapeWatchInfo(code) {
     );
     if (res.ok) {
       const html = await res.text();
-      const regex = /(\d{1,2})月末日/g;
-      let match;
       const months = new Set();
-      while ((match = regex.exec(html)) !== null) {
-        const m = parseInt(match[1]);
-        if (m >= 1 && m <= 12) months.add(m);
+
+      // HTMLRewriter で BasicInformation__detail 系クラスの要素テキストを収集
+      let buf = '';
+      const detailTexts = [];
+      await new HTMLRewriter()
+        .on('[class*="BasicInformation__detail"]', {
+          element(el) {
+            buf = '';
+            el.onEndTag(() => { detailTexts.push(buf.trim()); buf = ''; });
+          },
+          text(chunk) { buf += chunk.text; },
+        })
+        .transform(new Response(html)).arrayBuffer();
+
+      // 全角数字を半角に正規化してから "X月" を探す
+      for (const t of detailTexts) {
+        const norm = t.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFF10 + 0x30));
+        const m = norm.match(/^(\d{1,2})月/);
+        if (m) {
+          const month = parseInt(m[1]);
+          if (month >= 1 && month <= 12) months.add(month);
+        }
       }
+
+      // フォールバック: 全HTMLから "X月末" パターンを検索（"月末日" も含む）
+      if (months.size === 0) {
+        const normalized = html.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFF10 + 0x30));
+        const regex = /(\d{1,2})月末/g;
+        let match;
+        while ((match = regex.exec(normalized)) !== null) {
+          const m = parseInt(match[1]);
+          if (m >= 1 && m <= 12) months.add(m);
+        }
+      }
+
       benefitMonths = [...months].sort((a, b) => a - b);
     }
   } catch {}
