@@ -86,6 +86,25 @@ function riseRateHtml(onKabuDiff, closingPrice) {
   return `<span class="rise-rate">↑${rate}%</span>`;
 }
 
+function parseMonths(str) {
+  try { return JSON.parse(str || '[]'); } catch { return []; }
+}
+function offsetMonth(base, n) {
+  return ((base - 1 + n) % 12) + 1;
+}
+function statusBadge(status) {
+  if (status === 'min_hold') return '<span class="status-badge status-min-hold">🔖 最小保有</span>';
+  if (status === 'holding')  return '<span class="status-badge status-holding">✅ 保有中</span>';
+  return '<span class="status-badge status-watching">👀 ウォッチ中</span>';
+}
+function monthBadgesHtml(benefit_months, hlMonth) {
+  const months = parseMonths(benefit_months);
+  if (!months.length) return '—';
+  return months.map(m =>
+    `<span class="month-badge${m === hlMonth ? ' active' : ''}">${m}月</span>`
+  ).join('');
+}
+
 function nameHtml(code, s, isLoad, hasErr) {
   if (isLoad) return loadingSpan();
   if (hasErr) return errSpan();
@@ -250,6 +269,8 @@ let stocks          = [];
 let waitingStocks   = [];
 let achievedStocks  = [];
 let benefits        = [];
+let watchlist       = [];
+let currentWatchTab = 'all';
 let scraped         = {};
 const loading       = new Set();
 let drawerContext   = null;
@@ -262,34 +283,34 @@ const $ = id => document.getElementById(id);
 
 function switchSection(section) {
   currentSection = section;
-
-  // ボトムナビ active 更新
   document.querySelectorAll('.bottom-nav-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.section === section);
   });
-
   const tabNav = $('tabNav');
   const subBar = document.querySelector('.sub-bar');
   const addBtn = $('addBtn');
+
+  ['tab-purchase','tab-waiting','tab-achieved','tab-benefit','tab-watch'].forEach(id => {
+    const el = $(id); if (el) el.classList.add('hidden');
+  });
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('hidden', b.dataset.section !== section);
+  });
 
   if (section === 'onkabu') {
     tabNav.classList.remove('hidden');
     subBar.classList.remove('hidden');
     addBtn.querySelector('.label').textContent = '銘柄追加';
-    // セクション内のタブだけ表示
-    document.querySelectorAll('.tab-btn').forEach(b => {
-      b.classList.toggle('hidden', b.dataset.section !== 'onkabu');
-    });
-    // 最後に使っていたタブに戻す
     switchTab(currentOnkabuTab);
+  } else if (section === 'watch') {
+    tabNav.classList.remove('hidden');
+    subBar.classList.remove('hidden');
+    addBtn.querySelector('.label').textContent = 'ウォッチ追加';
+    switchWatchTab(currentWatchTab);
   } else {
     tabNav.classList.add('hidden');
     subBar.classList.add('hidden');
     addBtn.querySelector('.label').textContent = '優待追加';
-    currentTab = 'benefit';
-    $('tab-purchase').classList.add('hidden');
-    $('tab-waiting').classList.add('hidden');
-    $('tab-achieved').classList.add('hidden');
     $('tab-benefit').classList.remove('hidden');
   }
 }
@@ -308,9 +329,19 @@ function switchTab(tab) {
   $('tab-benefit').classList.add('hidden');
 }
 
+function switchWatchTab(tab) {
+  currentWatchTab = tab;
+  document.querySelectorAll('.tab-btn[data-section="watch"]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  $('tab-watch').classList.remove('hidden');
+  renderWatchlist();
+}
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     if (btn.dataset.section === 'onkabu') switchTab(btn.dataset.tab);
+    else if (btn.dataset.section === 'watch') switchWatchTab(btn.dataset.tab);
   });
 });
 
@@ -340,7 +371,7 @@ async function fetchScraped(code, force = false) {
   }
 }
 
-function renderBoth() { renderPurchase(); renderWaiting(); renderAchieved(); renderBenefits(); }
+function renderBoth() { renderPurchase(); renderWaiting(); renderAchieved(); renderBenefits(); renderWatchlist(); }
 
 // ─── ドロワーアクションボタン生成 ─────────────────────────────────────────────
 
@@ -362,6 +393,10 @@ function buildDrawerActions(type) {
   }
   if (type === 'benefit') {
     return `<div class="drawer-action-grid">${edit}<div class="drawer-action-span2">${del}</div></div>`;
+  }
+  if (type === 'watch') {
+    const toWaitingReg = `<button class="btn-drawer-action move da-to-waiting-reg">🏦 恩株待ちへ登録</button>`;
+    return `<div class="drawer-action-grid">${edit}${toYuutai}${ref}${toWaitingReg}<div class="drawer-action-span2">${del}</div></div>`;
   }
   return `<div class="drawer-action-grid">${edit}${ref}<div class="drawer-action-span2">${del}</div></div>`;
 }
@@ -489,17 +524,19 @@ function renderAchieved() {
 // ─── データ読み込み ───────────────────────────────────────────────────────────
 
 async function loadAll() {
-  [stocks, waitingStocks, achievedStocks, benefits] = await Promise.all([
+  [stocks, waitingStocks, achievedStocks, benefits, watchlist] = await Promise.all([
     API.get('/stocks'),
     API.get('/waiting-stocks'),
     API.get('/achieved-stocks'),
     API.get('/benefits'),
+    API.get('/watchlist'),
   ]);
   renderBoth();
   const allCodes = [...new Set([
     ...stocks.map(s => s.code),
     ...waitingStocks.map(s => s.code),
     ...achievedStocks.map(s => s.code),
+    ...watchlist.map(s => s.code),
   ])];
   for (const code of allCodes) fetchScraped(code);
 }
@@ -814,12 +851,17 @@ function closeDrawer() {
 
 $('addBtn').addEventListener('click', () => {
   if (currentSection === 'yuutai') { openBenefitModal(); return; }
+  if (currentSection === 'watch')  { openWatchModal();   return; }
   if (currentTab === 'purchase') openModal();
   else if (currentTab === 'waiting') openWaitingModal();
   else openAchievedModal();
 });
 $('refreshAllBtn').addEventListener('click', () => {
   if (currentSection === 'yuutai') return;
+  if (currentSection === 'watch') {
+    for (const s of watchlist) { Cache.clear(s.code); fetchScraped(s.code, true); }
+    return;
+  }
   const targets = currentTab === 'purchase' ? stocks
     : currentTab === 'waiting' ? waitingStocks
     : achievedStocks;
@@ -981,6 +1023,7 @@ $('drawerActions').addEventListener('click', async e => {
     if (type === 'purchase')      { const s = stocks.find(x => x.id == id);         if (s) openModal(s); }
     else if (type === 'waiting')  { const s = waitingStocks.find(x => x.id == id);  if (s) openWaitingModal(s); }
     else if (type === 'benefit')  { const s = benefits.find(x => x.id == id);       if (s) openBenefitModal(s); }
+    else if (type === 'watch')    { const s = watchlist.find(x => x.id == id);      if (s) openWatchModal(s); }
     else                          { const s = achievedStocks.find(x => x.id == id); if (s) openAchievedModal(s); }
   } else if (e.target.closest('.da-move')) {
     closeDrawer();
@@ -996,12 +1039,27 @@ $('drawerActions').addEventListener('click', async e => {
     if (type === 'waiting') {
       const s = waitingStocks.find(x => x.id == id);
       shares = s?.current_shares ?? 0;
+    } else if (type === 'watch') {
+      const s = watchlist.find(x => x.id == id);
+      shares = s?.shares ?? 0;
     } else {
       const s = achievedStocks.find(x => x.id == id);
       shares = s?.current_shares ?? 0;
     }
     const companyName = scraped[code]?.companyName || '';
     openBenefitModal(null, { code, company_name: companyName, shares });
+  } else if (e.target.closest('.da-to-waiting-reg')) {
+    closeDrawer();
+    const item = watchlist.find(x => x.id == id);
+    if (!item) return;
+    openWaitingModal();
+    $('wFieldCode').value = item.code;
+    $('wLotsContainer').innerHTML = '';
+    $('wLotsContainer').appendChild(createLotRow({
+      current_shares: item.shares || 0,
+      avg_acquisition_price: item.avg_price || 0,
+      is_nisa: 1,
+    }));
   } else if (e.target.closest('.da-ref')) {
     closeDrawer();
     Cache.clear(code);
@@ -1022,6 +1080,10 @@ $('drawerActions').addEventListener('click', async e => {
         await API.delete(`/benefits/${id}`);
         benefits = await API.get('/benefits');
         renderBenefits();
+      } else if (type === 'watch') {
+        await API.delete(`/watchlist/${id}`);
+        watchlist = await API.get('/watchlist');
+        renderWatchlist();
       } else {
         await API.delete(`/achieved-stocks/${id}`);
         achievedStocks = await API.get('/achieved-stocks');
@@ -1035,7 +1097,7 @@ $('drawerActions').addEventListener('click', async e => {
 $('drawerClose').addEventListener('click', closeDrawer);
 drawerOverlay.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeModal(); closeWaitingModal(); closeAchievedModal(); closeBenefitModal(); closeDrawer(); }
+  if (e.key === 'Escape') { closeModal(); closeWaitingModal(); closeAchievedModal(); closeBenefitModal(); closeWatchModal(); closeDrawer(); }
 });
 
 // ─── 優待期限 描画 ────────────────────────────────────────────────────────────
@@ -1066,6 +1128,52 @@ function renderBenefits() {
       <td class="memo-cell desktop-only">${escHtml(b.memo || '—')}</td>
       <td class="num-cell">${escHtml(b.expires_at)}</td>
       <td class="num-cell"><span class="${dCls}">${fmtDaysLeft(days)}</span></td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// ─── ウォッチリスト 描画 ───────────────────────────────────────────────────────
+
+function renderWatchlist() {
+  const tbody = $('watchTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  const cm = new Date().getMonth() + 1;
+  const targetMonth = {
+    month0: cm,
+    month1: offsetMonth(cm, 1),
+    month2: offsetMonth(cm, 2),
+  };
+  const filtered = currentWatchTab === 'all'
+    ? watchlist
+    : watchlist.filter(item => {
+        const months = parseMonths(item.benefit_months);
+        return months.includes(targetMonth[currentWatchTab]);
+      });
+  if (filtered.length === 0) {
+    const label = { all:'全て', month2:'前々月', month1:'前月', month0:'当月' }[currentWatchTab] || '';
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7"><span class="empty-icon">📋</span>${label}に該当する銘柄がありません。</td></tr>`;
+    return;
+  }
+  const hlMonth = currentWatchTab !== 'all' ? targetMonth[currentWatchTab] : null;
+  for (const item of filtered) {
+    const s = scraped[item.code];
+    const isLoad = loading.has(item.code);
+    const hasErr = !!s?.error;
+    const tr = document.createElement('tr');
+    tr.dataset.wkid = item.id;
+    tr.dataset.code  = item.code;
+    tr.innerHTML = `
+      <td class="code-cell"><span class="code-badge">${escHtml(item.code)}</span></td>
+      <td class="name-cell"><span class="company-name">
+        <a class="company-link" href="https://finance.yahoo.co.jp/quote/${item.code}.T" target="_blank" rel="noopener">${escHtml(item.company_name || item.code)}</a>
+        <a class="incentive-link" href="https://finance.yahoo.co.jp/quote/${item.code}.T/incentive" target="_blank" rel="noopener" title="株主優待">優待</a>
+      </span></td>
+      <td class="status-cell">${statusBadge(item.status)}</td>
+      <td class="months-cell">${monthBadgesHtml(item.benefit_months, hlMonth)}</td>
+      <td class="num-cell desktop-only">${item.shares ? fmt(item.shares) + '株' : '—'}</td>
+      <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(s?.closingPrice))}</td>
+      <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -1239,6 +1347,145 @@ function openBenefitDrawer(id) {
 // 優待期限 テーブル行タップ
 $('benefitTableBody').addEventListener('click', e => {
   handleRowTap(e, tr => openBenefitDrawer(tr.dataset.bid));
+});
+
+// ─── ウォッチリスト ドロワー ───────────────────────────────────────────────────
+
+function openWatchDrawer(id) {
+  const item = watchlist.find(x => x.id == id);
+  if (!item) return;
+  const s = scraped[item.code];
+  const months = parseMonths(item.benefit_months);
+  $('drawerTitle').textContent = `${item.code} ${item.company_name || ''}`;
+  $('drawerBody').innerHTML = buildDrawer([
+    { title: '状態・保有', rows: [
+      { label: 'ステータス', value: statusBadge(item.status) },
+      { label: '保有株数',   value: item.shares ? fmt(item.shares) + '株' : '—' },
+      { label: '取得価格',   value: item.avg_price ? fmtYen(item.avg_price) : '—' },
+    ]},
+    { title: '権利情報', rows: [
+      { label: '優待権利月',  value: months.length ? months.map(m => `${m}月`).join(' / ') : '—' },
+      { label: '株価',        value: fmtYen(s?.closingPrice) },
+      { label: '配当利回り',  value: fmtPct(s?.yieldValue) },
+    ]},
+    ...(item.memo ? [{ title: 'メモ', rows: [{ label: '', value: escHtml(item.memo) }] }] : []),
+  ]);
+  drawerContext = { type: 'watch', id: item.id, code: item.code };
+  $('drawerActions').innerHTML = buildDrawerActions('watch');
+  drawerOverlay.classList.add('open');
+  detailDrawer.classList.add('open');
+}
+
+// ウォッチリスト テーブル行タップ
+$('watchTableBody').addEventListener('click', e => {
+  handleRowTap(e, tr => openWatchDrawer(tr.dataset.wkid));
+});
+
+// ─── ウォッチリスト モーダル ─────────────────────────────────────────────────
+
+const watchModal = $('watchModal');
+const watchForm  = $('watchForm');
+let editingWkId  = null;
+let wkFetchTimer = null;
+
+function parseMonthsFromChips() {
+  return [...$('wkMonthChips').querySelectorAll('.month-chip.active')]
+    .map(c => parseInt(c.dataset.month));
+}
+function setMonthChips(months) {
+  $('wkMonthChips').querySelectorAll('.month-chip').forEach(chip => {
+    chip.classList.toggle('active', months.includes(parseInt(chip.dataset.month)));
+  });
+}
+
+$('wkMonthChips').addEventListener('click', e => {
+  const chip = e.target.closest('.month-chip');
+  if (chip) chip.classList.toggle('active');
+});
+
+function openWatchModal(item = null) {
+  editingWkId = item?.id ?? null;
+  $('watchModalTitle').textContent = item ? 'ウォッチ 編集' : 'ウォッチ 追加';
+  $('wkFieldId').value      = item?.id ?? '';
+  $('wkFieldCode').value    = item?.code ?? '';
+  $('wkFieldCode').disabled = !!item;
+  $('wkFieldStatus').value  = item?.status ?? 'watching';
+  $('wkFieldShares').value  = item?.shares ?? '';
+  $('wkFieldAvgPrice').value = item?.avg_price ?? '';
+  $('wkFieldMemo').value    = item?.memo ?? '';
+  $('wkCompanyHint').textContent = item?.company_name ?? '';
+  $('wkMonthHint').textContent   = '';
+  setMonthChips(parseMonths(item?.benefit_months));
+  watchModal.classList.add('open');
+  setTimeout(() => {
+    if (!$('wkFieldCode').disabled) $('wkFieldCode').focus();
+    else $('wkFieldShares').focus();
+  }, 50);
+}
+function closeWatchModal() {
+  watchModal.classList.remove('open');
+  watchForm.reset();
+  $('wkCompanyHint').textContent = '';
+  $('wkMonthHint').textContent   = '';
+  setMonthChips([]);
+  editingWkId = null;
+}
+
+$('wkCancelBtn').addEventListener('click', closeWatchModal);
+watchModal.addEventListener('click', e => { if (e.target === watchModal) closeWatchModal(); });
+
+// コード入力 → 会社名＋権利月を自動取得
+$('wkFieldCode').addEventListener('input', function() {
+  const code = this.value.trim();
+  clearTimeout(wkFetchTimer);
+  if (!/^\d{4}$/.test(code)) { $('wkCompanyHint').textContent = ''; return; }
+  $('wkCompanyHint').textContent = '取得中…';
+  $('wkMonthHint').textContent   = '';
+  wkFetchTimer = setTimeout(async () => {
+    try {
+      const info = await API.get(`/watch-info/${code}`);
+      scraped[code] = info;
+      Cache.set(code, info);
+      $('wkCompanyHint').textContent = info.companyName || '';
+      const months = info.benefitMonths || [];
+      if (months.length) {
+        setMonthChips(months);
+        $('wkMonthHint').textContent = `Yahoo Financeから取得（${months.join('・')}月）`;
+      } else {
+        $('wkMonthHint').textContent = '優待情報なし';
+      }
+    } catch {
+      $('wkCompanyHint').textContent = '';
+      $('wkMonthHint').textContent   = '取得失敗';
+    }
+  }, 600);
+});
+
+watchForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const code         = $('wkFieldCode').value.trim();
+  const status       = $('wkFieldStatus').value;
+  const shares       = parseInt($('wkFieldShares').value) || 0;
+  const avg_price    = parseFloat($('wkFieldAvgPrice').value) || null;
+  const memo         = $('wkFieldMemo').value.trim();
+  const company_name = $('wkCompanyHint').textContent || scraped[code]?.companyName || code;
+  const benefit_months = JSON.stringify(parseMonthsFromChips());
+  const dividend_yield = scraped[code]?.yieldValue ?? null;
+  if (!editingWkId && !/^\d{4}$/.test(code)) { alert('証券コードは4桁の数字で入力してください'); return; }
+  const btn = $('wkSaveBtn');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    if (editingWkId) {
+      await API.put(`/watchlist/${editingWkId}`, { company_name, status, shares, avg_price, benefit_months, dividend_yield, memo });
+    } else {
+      await API.post('/watchlist', { code, company_name, status, shares, avg_price, benefit_months, dividend_yield, memo });
+    }
+    closeWatchModal();
+    watchlist = await API.get('/watchlist');
+    renderWatchlist();
+    if (!scraped[code]) fetchScraped(code);
+  } catch (err) { alert(err.message); }
+  finally { btn.disabled = false; btn.textContent = '保存'; }
 });
 
 // ─── 初期化 ────────────────────────────────────────────────────────────────────

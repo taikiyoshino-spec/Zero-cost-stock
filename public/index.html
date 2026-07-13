@@ -29,6 +29,10 @@
     <button class="tab-btn" data-tab="waiting" data-section="onkabu">恩株待ち</button>
     <button class="tab-btn" data-tab="achieved" data-section="onkabu">恩株化</button>
     <button class="tab-btn hidden" data-tab="benefit" data-section="yuutai">優待期限</button>
+    <button class="tab-btn hidden" data-tab="all" data-section="watch">全て</button>
+    <button class="tab-btn hidden" data-tab="month2" data-section="watch">前々月</button>
+    <button class="tab-btn hidden" data-tab="month1" data-section="watch">前月</button>
+    <button class="tab-btn hidden" data-tab="month0" data-section="watch">当月</button>
   </nav>
 
   <!-- 最終更新時刻 -->
@@ -268,6 +272,28 @@
     </main>
   </div>
 
+  <!-- ══ ウォッチリストパネル ══ -->
+  <div id="tab-watch" class="tab-panel hidden">
+    <main class="main-content">
+      <div class="table-wrapper">
+        <table id="watchTable">
+          <thead>
+            <tr>
+              <th class="th-code">コード</th>
+              <th class="th-name">会社名</th>
+              <th class="th-status">状態</th>
+              <th class="th-months">権利月</th>
+              <th class="th-num desktop-only">保有株数</th>
+              <th class="th-num desktop-only">株価</th>
+              <th class="th-num desktop-only">配当利回り</th>
+            </tr>
+          </thead>
+          <tbody id="watchTableBody"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
   <!-- ══ 優待期限 モーダル ══ -->
   <div class="modal-overlay" id="benefitModal" role="dialog" aria-modal="true" aria-labelledby="benefitModalTitle">
     <div class="modal-box">
@@ -323,6 +349,73 @@
     </div>
   </div>
 
+  <!-- ══ ウォッチリスト モーダル ══ -->
+  <div class="modal-overlay" id="watchModal" role="dialog" aria-modal="true" aria-labelledby="watchModalTitle">
+    <div class="modal-box">
+      <h2 class="modal-title" id="watchModalTitle">ウォッチ 追加</h2>
+      <form id="watchForm" novalidate>
+        <input type="hidden" id="wkFieldId">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="wkFieldCode">証券コード <span class="required">*</span></label>
+            <input type="text" id="wkFieldCode" maxlength="4" pattern="\d{4}"
+                   placeholder="例: 8267" inputmode="numeric" required>
+            <span class="field-hint" id="wkCompanyHint"></span>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div class="form-group">
+            <label for="wkFieldStatus">状態</label>
+            <select id="wkFieldStatus">
+              <option value="watching">👀 ウォッチ中</option>
+              <option value="min_hold">🔖 最小保有</option>
+              <option value="holding">✅ 保有中</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="wkFieldShares">保有株数 <span class="required">*</span></label>
+            <input type="number" id="wkFieldShares" min="0" step="100" placeholder="例: 100">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="wkFieldAvgPrice">取得価格 <span class="cond-label">（任意）</span></label>
+            <input type="number" id="wkFieldAvgPrice" min="0" step="1" placeholder="例: 1500">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>優待権利確定月 <span class="field-hint" id="wkMonthHint"></span></label>
+            <div id="wkMonthChips" class="month-chips">
+              <button type="button" class="month-chip" data-month="1">1月</button>
+              <button type="button" class="month-chip" data-month="2">2月</button>
+              <button type="button" class="month-chip" data-month="3">3月</button>
+              <button type="button" class="month-chip" data-month="4">4月</button>
+              <button type="button" class="month-chip" data-month="5">5月</button>
+              <button type="button" class="month-chip" data-month="6">6月</button>
+              <button type="button" class="month-chip" data-month="7">7月</button>
+              <button type="button" class="month-chip" data-month="8">8月</button>
+              <button type="button" class="month-chip" data-month="9">9月</button>
+              <button type="button" class="month-chip" data-month="10">10月</button>
+              <button type="button" class="month-chip" data-month="11">11月</button>
+              <button type="button" class="month-chip" data-month="12">12月</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="wkFieldMemo">メモ</label>
+            <textarea id="wkFieldMemo" rows="2" placeholder="例: スーパーの割引券、毎年3月権利"></textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-cancel" id="wkCancelBtn">キャンセル</button>
+          <button type="submit" class="btn-save" id="wkSaveBtn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- 詳細ドロワー（モバイル用） -->
   <div class="drawer-overlay" id="drawerOverlay"></div>
   <div class="detail-drawer" id="detailDrawer">
@@ -339,6 +432,10 @@
     <button class="bottom-nav-btn active" data-section="onkabu">
       <span class="bottom-nav-icon">🏦</span>
       <span>恩株管理</span>
+    </button>
+    <button class="bottom-nav-btn" data-section="watch">
+      <span class="bottom-nav-icon">📋</span>
+      <span>ウォッチ</span>
     </button>
     <button class="bottom-nav-btn" data-section="yuutai">
       <span class="bottom-nav-icon">🎁</span>

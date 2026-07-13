@@ -205,6 +205,29 @@ async function scrapeStock(code) {
   };
 }
 
+async function scrapeWatchInfo(code) {
+  const stockData = await scrapeStock(code);
+  let benefitMonths = [];
+  try {
+    const res = await fetch(
+      `https://finance.yahoo.co.jp/quote/${code}.T/incentive`,
+      { headers: BROWSER_HEADERS }
+    );
+    if (res.ok) {
+      const html = await res.text();
+      const regex = /(\d{1,2})月末日/g;
+      let match;
+      const months = new Set();
+      while ((match = regex.exec(html)) !== null) {
+        const m = parseInt(match[1]);
+        if (m >= 1 && m <= 12) months.add(m);
+      }
+      benefitMonths = [...months].sort((a, b) => a - b);
+    }
+  } catch {}
+  return { ...stockData, benefitMonths };
+}
+
 // ─── 株主優待スクレイピング ────────────────────────────────────────────────────
 
 async function scrapeIncentiveInfo(code, shares) {
@@ -588,6 +611,58 @@ async function handleApi(request, env, path) {
     const shares = parseInt(reqUrl.searchParams.get('shares')) || 0;
     const text = await scrapeIncentiveInfo(incentiveInfoMatch[1], shares);
     return json({ text: text ?? null });
+  }
+
+  // ── ウォッチリスト CRUD ───────────────────────────────────────────────────────
+
+  // GET /api/watchlist
+  if (path === '/api/watchlist' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM watchlist ORDER BY created_at ASC'
+    ).all();
+    return json(results);
+  }
+
+  // POST /api/watchlist
+  if (path === '/api/watchlist' && method === 'POST') {
+    const { code, company_name = '', status = 'watching', shares = 0,
+            avg_price = null, benefit_months = '[]', dividend_yield = null, memo = '' } = await request.json();
+    if (!code || !/^\d{4}$/.test(String(code))) return err('証券コードは4桁の数字で入力してください');
+    await env.DB.prepare(
+      'INSERT INTO watchlist (code, company_name, status, shares, avg_price, benefit_months, dividend_yield, memo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(code, company_name, status, shares, avg_price, benefit_months, dividend_yield, memo).run();
+    return json({ success: true });
+  }
+
+  // PUT /api/watchlist/:id
+  const watchUpdateMatch = path.match(/^\/api\/watchlist\/(\d+)$/);
+  if (watchUpdateMatch && method === 'PUT') {
+    const { company_name = '', status = 'watching', shares = 0,
+            avg_price = null, benefit_months = '[]', dividend_yield = null, memo = '' } = await request.json();
+    await env.DB.prepare(`
+      UPDATE watchlist SET company_name=?, status=?, shares=?, avg_price=?,
+        benefit_months=?, dividend_yield=?, memo=?, updated_at=datetime('now')
+      WHERE id=?
+    `).bind(company_name, status, shares, avg_price, benefit_months, dividend_yield, memo, watchUpdateMatch[1]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/watchlist/:id
+  const watchDeleteMatch = path.match(/^\/api\/watchlist\/(\d+)$/);
+  if (watchDeleteMatch && method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM watchlist WHERE id=?').bind(watchDeleteMatch[1]).run();
+    return json({ success: true });
+  }
+
+  // GET /api/watch-info/:code
+  const watchInfoMatch = path.match(/^\/api\/watch-info\/(\d{4})$/);
+  if (watchInfoMatch && method === 'GET') {
+    try {
+      const data = await scrapeWatchInfo(watchInfoMatch[1]);
+      return json(data);
+    } catch (e) {
+      return err(`データ取得エラー: ${e.message}`, 500);
+    }
   }
 
   return err('Not Found', 404);

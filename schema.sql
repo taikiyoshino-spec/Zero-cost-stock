@@ -45,3 +45,17 @@ CREATE TABLE IF NOT EXISTS benefit_templates (
   tag        TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS watchlist (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  code           TEXT    NOT NULL,
+  company_name   TEXT    NOT NULL DEFAULT '',
+  status         TEXT    NOT NULL DEFAULT 'watching',
+  shares         INTEGER NOT NULL DEFAULT 0,
+  avg_price      REAL,
+  benefit_months TEXT    NOT NULL DEFAULT '[]',
+  dividend_yield REAL,
+  memo           TEXT    NOT NULL DEFAULT '',
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);

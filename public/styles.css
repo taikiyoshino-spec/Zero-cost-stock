@@ -831,3 +831,65 @@ tbody tr:hover td.input-col {
 }
 .form-group textarea { resize: vertical; min-height: 72px; }
 .form-group select { cursor: pointer; }
+
+/* ─── ウォッチリスト ─────────────────────────────────────────────────────────── */
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.status-watching { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+.status-min-hold { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+.status-holding  { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+
+.month-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.month-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-sub);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.month-chip.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.month-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: #f1f5f9;
+  color: var(--text-sub);
+  border: 1px solid var(--border);
+  margin-right: 2px;
+}
+.month-badge.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+.th-status { width: 80px; }
+.th-months { width: 90px; }
+.status-cell { white-space: nowrap; }
+.months-cell { white-space: nowrap; }
+
+/* ボトムナビ3つ対応 */
+.bottom-nav { grid-template-columns: repeat(3, 1fr); }
