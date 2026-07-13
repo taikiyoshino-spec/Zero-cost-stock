@@ -224,43 +224,77 @@ function extractBenefitMonths(html) {
   return [...months].sort((a, b) => a - b);
 }
 
-function extractDividendMonths(html) {
-  // "1株当たり配当金の推移" セクション内の最新テーブルから配当月を算出
-  // テーブルヘッダ "yyyy年m月期" の m = 第4四半期の月
-  // 第3〜第1四半期はそこから3ヶ月ずつ遡る
-  // 各四半期の行に 0 より大きい数値があればその月を配当月とする
+async function extractDividendMonths(html) {
+  // "1株当たり配当金の推移" テーブルを HTMLRewriter で行×列解析
+  // 第1〜4四半期が列ヘッダー、予想・実績が行になっている前提
   const start = html.indexOf('1株当たり配当金の推移');
   if (start < 0) return [];
+  const sectionHtml = html.substring(start, start + 10000);
 
-  // HTMLタグを除去してテキスト化
-  const text = normalize(
-    html.substring(start, start + 10000)
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-  );
+  // テーブルのセルを行として収集
+  const rows = [];
+  let currentRow = [];
+  let cellBuf = '';
+  await new HTMLRewriter()
+    .on('tr', {
+      element(el) {
+        currentRow = [];
+        el.onEndTag(() => {
+          if (currentRow.length > 0) rows.push([...currentRow]);
+          currentRow = [];
+        });
+      },
+    })
+    .on('td, th', {
+      element(el) {
+        cellBuf = '';
+        el.onEndTag(() => {
+          currentRow.push(normalize(cellBuf.trim()));
+          cellBuf = '';
+        });
+      },
+      text(chunk) { cellBuf += chunk.text; },
+    })
+    .transform(new Response(sectionHtml)).arrayBuffer();
 
-  // "yyyy年m月期" から決算月（第4四半期の月）を取得
-  const yearMatch = text.match(/\d{4}年(\d{1,2})月期/);
-  if (!yearMatch) return [];
-  const fiscalEndMonth = parseInt(yearMatch[1]);
+  // "yyyy年m月期" から決算月を取得、第X四半期の列インデックスを記録
+  let fiscalEndMonth = null;
+  let headerRowIdx = -1;
+  const qColMap = {}; // 四半期番号 → 列インデックス
 
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!fiscalEndMonth) {
+      for (const cell of row) {
+        const fm = cell.match(/\d{4}年(\d{1,2})月期/);
+        if (fm) { fiscalEndMonth = parseInt(fm[1]); break; }
+      }
+    }
+    if (headerRowIdx < 0 && row.some(c => /第[1-4]四半期/.test(c))) {
+      headerRowIdx = i;
+      row.forEach((cell, idx) => {
+        const qm = cell.match(/第([1-4])四半期/);
+        if (qm) qColMap[parseInt(qm[1])] = idx;
+      });
+    }
+    if (fiscalEndMonth && headerRowIdx >= 0) break;
+  }
+
+  if (!fiscalEndMonth || Object.keys(qColMap).length === 0) return [];
+
+  // ヘッダー行の直後の行（予想・実績）を確認し、0より大きい値がある四半期を配当月として登録
   const months = new Set();
-  for (let q = 1; q <= 4; q++) {
-    const qStr = `第${q}四半期`;
-    const qIdx = text.indexOf(qStr);
-    if (qIdx < 0) continue;
-
-    const afterQ = qIdx + qStr.length;
-    const nextQIdx = q < 4 ? text.indexOf(`第${q + 1}四半期`, afterQ) : -1;
-    const chunk = text.substring(afterQ, nextQIdx > 0 ? nextQIdx : afterQ + 200);
-
-    // 0より大きい数値（小数点あり or 1〜3桁整数）があれば配当あり
-    // 4桁以上の数字（年号など）は除外
-    if (/(?:^| )[1-9]\d{0,2}(\.\d+)?(?= |$)/.test(chunk)) {
-      // 第q四半期の月 = 決算月から (4-q)*3 ヶ月遡る
-      const offset = (4 - q) * 3;
-      const month = ((fiscalEndMonth - 1 - offset) % 12 + 12) % 12 + 1;
-      months.add(month);
+  const limit = Math.min(rows.length, headerRowIdx + 6);
+  for (let i = headerRowIdx + 1; i < limit; i++) {
+    const row = rows[i];
+    for (const [q, colIdx] of Object.entries(qColMap)) {
+      const val = colIdx < row.length ? row[colIdx] : '';
+      if (val && val !== '-' && parseFloat(val) > 0) {
+        const qNum = parseInt(q);
+        const offset = (4 - qNum) * 3;
+        const month = ((fiscalEndMonth - 1 - offset) % 12 + 12) % 12 + 1;
+        months.add(month);
+      }
     }
   }
 
@@ -277,7 +311,7 @@ async function scrapeWatchInfo(code) {
       fetch(`https://finance.yahoo.co.jp/quote/${code}.T/dividend`,  { headers: BROWSER_HEADERS }),
     ]);
     if (incentiveRes.ok) benefitMonths  = extractBenefitMonths(await incentiveRes.text());
-    if (dividendRes.ok)  dividendMonths = extractDividendMonths(await dividendRes.text());
+    if (dividendRes.ok)  dividendMonths = await extractDividendMonths(await dividendRes.text());
   } catch {}
   return { ...stockData, benefitMonths, dividendMonths };
 }
