@@ -205,19 +205,36 @@ async function scrapeStock(code) {
   };
 }
 
-function extractMonthsFromSection(html, sectionKeyword) {
+function normalize(str) {
+  return str.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFF10 + 0x30));
+}
+
+function extractBenefitMonths(html) {
+  // 優待ページ: "株主優待の内容" セクションの "X月末" を抽出
   const months = new Set();
-  const sectionStart = html.indexOf(sectionKeyword);
-  if (sectionStart < 0) return [];
-  const sectionHtml = html.substring(sectionStart, sectionStart + 6000);
-  const normalized = sectionHtml.replace(/[０-９]/g, c =>
-    String.fromCharCode(c.charCodeAt(0) - 0xFF10 + 0x30)
-  );
+  const start = html.indexOf('株主優待の内容');
+  if (start < 0) return [];
+  const section = normalize(html.substring(start, start + 6000));
   const regex = /(\d{1,2})月末/g;
-  let match;
-  while ((match = regex.exec(normalized)) !== null) {
-    const m = parseInt(match[1]);
-    if (m >= 1 && m <= 12) months.add(m);
+  let m;
+  while ((m = regex.exec(section)) !== null) {
+    const n = parseInt(m[1]);
+    if (n >= 1 && n <= 12) months.add(n);
+  }
+  return [...months].sort((a, b) => a - b);
+}
+
+function extractDividendMonths(html) {
+  // 配当ページ: "権利確定" セクションの "X月XX日" を抽出（具体日付形式）
+  const months = new Set();
+  const start = html.indexOf('権利確定');
+  if (start < 0) return [];
+  const section = normalize(html.substring(start, start + 8000));
+  const regex = /(\d{1,2})月\d{1,2}日/g;
+  let m;
+  while ((m = regex.exec(section)) !== null) {
+    const n = parseInt(m[1]);
+    if (n >= 1 && n <= 12) months.add(n);
   }
   return [...months].sort((a, b) => a - b);
 }
@@ -231,14 +248,8 @@ async function scrapeWatchInfo(code) {
       fetch(`https://finance.yahoo.co.jp/quote/${code}.T/incentive`, { headers: BROWSER_HEADERS }),
       fetch(`https://finance.yahoo.co.jp/quote/${code}.T/dividend`,  { headers: BROWSER_HEADERS }),
     ]);
-    if (incentiveRes.ok) {
-      const html = await incentiveRes.text();
-      benefitMonths = extractMonthsFromSection(html, '株主優待の内容');
-    }
-    if (dividendRes.ok) {
-      const html = await dividendRes.text();
-      dividendMonths = extractMonthsFromSection(html, '権利確定');
-    }
+    if (incentiveRes.ok) benefitMonths  = extractBenefitMonths(await incentiveRes.text());
+    if (dividendRes.ok)  dividendMonths = extractDividendMonths(await dividendRes.text());
   } catch {}
   return { ...stockData, benefitMonths, dividendMonths };
 }
