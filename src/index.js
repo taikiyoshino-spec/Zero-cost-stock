@@ -225,25 +225,45 @@ function extractBenefitMonths(html) {
 }
 
 function extractDividendMonths(html) {
-  // "1株当たり配当金の推移" セクションから "yyyy年m月期" を検索
-  // 今月〜来年末の範囲に絞って配当月を抽出
-  const months = new Set();
+  // "1株当たり配当金の推移" セクション内の最新テーブルから配当月を算出
+  // テーブルヘッダ "yyyy年m月期" の m = 第4四半期の月
+  // 第3〜第1四半期はそこから3ヶ月ずつ遡る
+  // 各四半期の行に 0 より大きい数値があればその月を配当月とする
   const start = html.indexOf('1株当たり配当金の推移');
   if (start < 0) return [];
-  const section = normalize(html.substring(start, start + 8000));
-  const now = new Date();
-  const curYear = now.getFullYear();
-  const curMonth = now.getMonth() + 1;
-  const nextYear = curYear + 1;
-  const regex = /(\d{4})年(\d{1,2})月期/g;
-  let m;
-  while ((m = regex.exec(section)) !== null) {
-    const year = parseInt(m[1]);
-    const month = parseInt(m[2]);
-    if ((year === curYear && month >= curMonth) || year === nextYear) {
-      if (month >= 1 && month <= 12) months.add(month);
+
+  // HTMLタグを除去してテキスト化
+  const text = normalize(
+    html.substring(start, start + 10000)
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+  );
+
+  // "yyyy年m月期" から決算月（第4四半期の月）を取得
+  const yearMatch = text.match(/\d{4}年(\d{1,2})月期/);
+  if (!yearMatch) return [];
+  const fiscalEndMonth = parseInt(yearMatch[1]);
+
+  const months = new Set();
+  for (let q = 1; q <= 4; q++) {
+    const qStr = `第${q}四半期`;
+    const qIdx = text.indexOf(qStr);
+    if (qIdx < 0) continue;
+
+    const afterQ = qIdx + qStr.length;
+    const nextQIdx = q < 4 ? text.indexOf(`第${q + 1}四半期`, afterQ) : -1;
+    const chunk = text.substring(afterQ, nextQIdx > 0 ? nextQIdx : afterQ + 200);
+
+    // 0より大きい数値（小数点あり or 1〜3桁整数）があれば配当あり
+    // 4桁以上の数字（年号など）は除外
+    if (/(?:^| )[1-9]\d{0,2}(\.\d+)?(?= |$)/.test(chunk)) {
+      // 第q四半期の月 = 決算月から (4-q)*3 ヶ月遡る
+      const offset = (4 - q) * 3;
+      const month = ((fiscalEndMonth - 1 - offset) % 12 + 12) % 12 + 1;
+      months.add(month);
     }
   }
+
   return [...months].sort((a, b) => a - b);
 }
 
