@@ -205,39 +205,42 @@ async function scrapeStock(code) {
   };
 }
 
+function extractMonthsFromSection(html, sectionKeyword) {
+  const months = new Set();
+  const sectionStart = html.indexOf(sectionKeyword);
+  if (sectionStart < 0) return [];
+  const sectionHtml = html.substring(sectionStart, sectionStart + 6000);
+  const normalized = sectionHtml.replace(/[０-９]/g, c =>
+    String.fromCharCode(c.charCodeAt(0) - 0xFF10 + 0x30)
+  );
+  const regex = /(\d{1,2})月末/g;
+  let match;
+  while ((match = regex.exec(normalized)) !== null) {
+    const m = parseInt(match[1]);
+    if (m >= 1 && m <= 12) months.add(m);
+  }
+  return [...months].sort((a, b) => a - b);
+}
+
 async function scrapeWatchInfo(code) {
   const stockData = await scrapeStock(code);
   let benefitMonths = [];
+  let dividendMonths = [];
   try {
-    const res = await fetch(
-      `https://finance.yahoo.co.jp/quote/${code}.T/incentive`,
-      { headers: BROWSER_HEADERS }
-    );
-    if (res.ok) {
-      const html = await res.text();
-      const months = new Set();
-
-      // "株主優待の内容" セクション以降のみを対象にする
-      const sectionStart = html.indexOf('株主優待の内容');
-      if (sectionStart >= 0) {
-        const sectionHtml = html.substring(sectionStart, sectionStart + 6000);
-        // 全角数字を半角に正規化
-        const normalized = sectionHtml.replace(/[０-９]/g, c =>
-          String.fromCharCode(c.charCodeAt(0) - 0xFF10 + 0x30)
-        );
-        // "X月末日" / "X月末" を検索
-        const regex = /(\d{1,2})月末/g;
-        let match;
-        while ((match = regex.exec(normalized)) !== null) {
-          const m = parseInt(match[1]);
-          if (m >= 1 && m <= 12) months.add(m);
-        }
-      }
-
-      benefitMonths = [...months].sort((a, b) => a - b);
+    const [incentiveRes, dividendRes] = await Promise.all([
+      fetch(`https://finance.yahoo.co.jp/quote/${code}.T/incentive`, { headers: BROWSER_HEADERS }),
+      fetch(`https://finance.yahoo.co.jp/quote/${code}.T/dividend`,  { headers: BROWSER_HEADERS }),
+    ]);
+    if (incentiveRes.ok) {
+      const html = await incentiveRes.text();
+      benefitMonths = extractMonthsFromSection(html, '株主優待の内容');
+    }
+    if (dividendRes.ok) {
+      const html = await dividendRes.text();
+      dividendMonths = extractMonthsFromSection(html, '権利確定');
     }
   } catch {}
-  return { ...stockData, benefitMonths };
+  return { ...stockData, benefitMonths, dividendMonths };
 }
 
 // ─── 株主優待スクレイピング ────────────────────────────────────────────────────
@@ -638,11 +641,11 @@ async function handleApi(request, env, path) {
   // POST /api/watchlist
   if (path === '/api/watchlist' && method === 'POST') {
     const { code, company_name = '', status = 'watching', shares = 0,
-            avg_price = null, benefit_months = '[]', dividend_yield = null, memo = '' } = await request.json();
+            avg_price = null, benefit_months = '[]', dividend_months = '[]', dividend_yield = null, memo = '' } = await request.json();
     if (!code || !/^\d{4}$/.test(String(code))) return err('証券コードは4桁の数字で入力してください');
     await env.DB.prepare(
-      'INSERT INTO watchlist (code, company_name, status, shares, avg_price, benefit_months, dividend_yield, memo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(code, company_name, status, shares, avg_price, benefit_months, dividend_yield, memo).run();
+      'INSERT INTO watchlist (code, company_name, status, shares, avg_price, benefit_months, dividend_months, dividend_yield, memo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(code, company_name, status, shares, avg_price, benefit_months, dividend_months, dividend_yield, memo).run();
     return json({ success: true });
   }
 
@@ -650,12 +653,12 @@ async function handleApi(request, env, path) {
   const watchUpdateMatch = path.match(/^\/api\/watchlist\/(\d+)$/);
   if (watchUpdateMatch && method === 'PUT') {
     const { company_name = '', status = 'watching', shares = 0,
-            avg_price = null, benefit_months = '[]', dividend_yield = null, memo = '' } = await request.json();
+            avg_price = null, benefit_months = '[]', dividend_months = '[]', dividend_yield = null, memo = '' } = await request.json();
     await env.DB.prepare(`
       UPDATE watchlist SET company_name=?, status=?, shares=?, avg_price=?,
-        benefit_months=?, dividend_yield=?, memo=?, updated_at=datetime('now')
+        benefit_months=?, dividend_months=?, dividend_yield=?, memo=?, updated_at=datetime('now')
       WHERE id=?
-    `).bind(company_name, status, shares, avg_price, benefit_months, dividend_yield, memo, watchUpdateMatch[1]).run();
+    `).bind(company_name, status, shares, avg_price, benefit_months, dividend_months, dividend_yield, memo, watchUpdateMatch[1]).run();
     return json({ success: true });
   }
 

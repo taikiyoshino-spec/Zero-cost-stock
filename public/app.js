@@ -97,12 +97,17 @@ function statusBadge(status) {
   if (status === 'holding')  return '<span class="status-badge status-holding">✅ 保有中</span>';
   return '<span class="status-badge status-watching">👀 ウォッチ中</span>';
 }
-function monthBadgesHtml(benefit_months, hlMonth) {
-  const months = parseMonths(benefit_months);
-  if (!months.length) return '—';
-  return months.map(m =>
+function monthBadgesHtml(benefit_months, dividend_months, hlMonth) {
+  const bm = parseMonths(benefit_months);
+  const dm = parseMonths(dividend_months);
+  if (!bm.length && !dm.length) return '—';
+  const bmHtml = bm.map(m =>
     `<span class="month-badge${m === hlMonth ? ' active' : ''}">${m}月</span>`
   ).join('');
+  const dmHtml = dm.map(m =>
+    `<span class="month-badge dividend${m === hlMonth ? ' active' : ''}">${m}月</span>`
+  ).join('');
+  return bmHtml + dmHtml;
 }
 
 function nameHtml(code, s, isLoad, hasErr) {
@@ -1147,8 +1152,9 @@ function renderWatchlist() {
   const filtered = currentWatchTab === 'all'
     ? watchlist
     : watchlist.filter(item => {
-        const months = parseMonths(item.benefit_months);
-        return months.includes(targetMonth[currentWatchTab]);
+        const tm = targetMonth[currentWatchTab];
+        return parseMonths(item.benefit_months).includes(tm) ||
+               parseMonths(item.dividend_months).includes(tm);
       });
   if (filtered.length === 0) {
     const label = { all:'全て', month2:'前々月', month1:'前月', month0:'当月' }[currentWatchTab] || '';
@@ -1170,7 +1176,7 @@ function renderWatchlist() {
         <a class="incentive-link" href="https://finance.yahoo.co.jp/quote/${item.code}.T/incentive" target="_blank" rel="noopener" title="株主優待">優待</a>
       </span></td>
       <td class="status-cell">${statusBadge(item.status)}</td>
-      <td class="months-cell">${monthBadgesHtml(item.benefit_months, hlMonth)}</td>
+      <td class="months-cell">${monthBadgesHtml(item.benefit_months, item.dividend_months, hlMonth)}</td>
       <td class="num-cell desktop-only">${item.shares ? fmt(item.shares) + '株' : '—'}</td>
       <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(s?.closingPrice))}</td>
       <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>`;
@@ -1355,7 +1361,8 @@ function openWatchDrawer(id) {
   const item = watchlist.find(x => x.id == id);
   if (!item) return;
   const s = scraped[item.code];
-  const months = parseMonths(item.benefit_months);
+  const bm = parseMonths(item.benefit_months);
+  const dm = parseMonths(item.dividend_months);
   $('drawerTitle').textContent = `${item.code} ${item.company_name || ''}`;
   $('drawerBody').innerHTML = buildDrawer([
     { title: '状態・保有', rows: [
@@ -1364,9 +1371,10 @@ function openWatchDrawer(id) {
       { label: '取得価格',   value: item.avg_price ? fmtYen(item.avg_price) : '—' },
     ]},
     { title: '権利情報', rows: [
-      { label: '優待権利月',  value: months.length ? months.map(m => `${m}月`).join(' / ') : '—' },
-      { label: '株価',        value: fmtYen(s?.closingPrice) },
-      { label: '配当利回り',  value: fmtPct(s?.yieldValue) },
+      { label: '🎁 優待権利月', value: bm.length ? bm.map(m => `${m}月`).join(' / ') : '—' },
+      { label: '💰 配当権利月', value: dm.length ? dm.map(m => `${m}月`).join(' / ') : '—' },
+      { label: '株価',          value: fmtYen(s?.closingPrice) },
+      { label: '配当利回り',    value: fmtPct(s?.yieldValue) },
     ]},
     ...(item.memo ? [{ title: 'メモ', rows: [{ label: '', value: escHtml(item.memo) }] }] : []),
   ]);
@@ -1392,13 +1400,26 @@ function parseMonthsFromChips() {
   return [...$('wkMonthChips').querySelectorAll('.month-chip.active')]
     .map(c => parseInt(c.dataset.month));
 }
+function parseDivMonthsFromChips() {
+  return [...$('wkDivMonthChips').querySelectorAll('.month-chip.active')]
+    .map(c => parseInt(c.dataset.month));
+}
 function setMonthChips(months) {
   $('wkMonthChips').querySelectorAll('.month-chip').forEach(chip => {
     chip.classList.toggle('active', months.includes(parseInt(chip.dataset.month)));
   });
 }
+function setDivMonthChips(months) {
+  $('wkDivMonthChips').querySelectorAll('.month-chip').forEach(chip => {
+    chip.classList.toggle('active', months.includes(parseInt(chip.dataset.month)));
+  });
+}
 
 $('wkMonthChips').addEventListener('click', e => {
+  const chip = e.target.closest('.month-chip');
+  if (chip) chip.classList.toggle('active');
+});
+$('wkDivMonthChips').addEventListener('click', e => {
   const chip = e.target.closest('.month-chip');
   if (chip) chip.classList.toggle('active');
 });
@@ -1415,7 +1436,9 @@ function openWatchModal(item = null) {
   $('wkFieldMemo').value    = item?.memo ?? '';
   $('wkCompanyHint').textContent = item?.company_name ?? '';
   $('wkMonthHint').textContent   = '';
+  $('wkDivMonthHint').textContent = '';
   setMonthChips(parseMonths(item?.benefit_months));
+  setDivMonthChips(parseMonths(item?.dividend_months));
   watchModal.classList.add('open');
   setTimeout(() => {
     if (!$('wkFieldCode').disabled) $('wkFieldCode').focus();
@@ -1425,9 +1448,11 @@ function openWatchModal(item = null) {
 function closeWatchModal() {
   watchModal.classList.remove('open');
   watchForm.reset();
-  $('wkCompanyHint').textContent = '';
-  $('wkMonthHint').textContent   = '';
+  $('wkCompanyHint').textContent  = '';
+  $('wkMonthHint').textContent    = '';
+  $('wkDivMonthHint').textContent = '';
   setMonthChips([]);
+  setDivMonthChips([]);
   editingWkId = null;
 }
 
@@ -1439,24 +1464,33 @@ $('wkFieldCode').addEventListener('input', function() {
   const code = this.value.trim();
   clearTimeout(wkFetchTimer);
   if (!/^\d{4}$/.test(code)) { $('wkCompanyHint').textContent = ''; return; }
-  $('wkCompanyHint').textContent = '取得中…';
-  $('wkMonthHint').textContent   = '';
+  $('wkCompanyHint').textContent  = '取得中…';
+  $('wkMonthHint').textContent    = '';
+  $('wkDivMonthHint').textContent = '';
   wkFetchTimer = setTimeout(async () => {
     try {
       const info = await API.get(`/watch-info/${code}`);
       scraped[code] = info;
       Cache.set(code, info);
       $('wkCompanyHint').textContent = info.companyName || '';
-      const months = info.benefitMonths || [];
-      if (months.length) {
-        setMonthChips(months);
-        $('wkMonthHint').textContent = `Yahoo Financeから取得（${months.join('・')}月）`;
+      const bm = info.benefitMonths || [];
+      if (bm.length) {
+        setMonthChips(bm);
+        $('wkMonthHint').textContent = `Yahoo Financeから取得（${bm.join('・')}月）`;
       } else {
         $('wkMonthHint').textContent = '優待情報なし';
       }
+      const dm = info.dividendMonths || [];
+      if (dm.length) {
+        setDivMonthChips(dm);
+        $('wkDivMonthHint').textContent = `Yahoo Financeから取得（${dm.join('・')}月）`;
+      } else {
+        $('wkDivMonthHint').textContent = '情報なし';
+      }
     } catch {
-      $('wkCompanyHint').textContent = '';
-      $('wkMonthHint').textContent   = '取得失敗';
+      $('wkCompanyHint').textContent  = '';
+      $('wkMonthHint').textContent    = '取得失敗';
+      $('wkDivMonthHint').textContent = '';
     }
   }, 600);
 });
@@ -1469,16 +1503,17 @@ watchForm.addEventListener('submit', async e => {
   const avg_price    = parseFloat($('wkFieldAvgPrice').value) || null;
   const memo         = $('wkFieldMemo').value.trim();
   const company_name = $('wkCompanyHint').textContent || scraped[code]?.companyName || code;
-  const benefit_months = JSON.stringify(parseMonthsFromChips());
-  const dividend_yield = scraped[code]?.yieldValue ?? null;
+  const benefit_months  = JSON.stringify(parseMonthsFromChips());
+  const dividend_months = JSON.stringify(parseDivMonthsFromChips());
+  const dividend_yield  = scraped[code]?.yieldValue ?? null;
   if (!editingWkId && !/^\d{4}$/.test(code)) { alert('証券コードは4桁の数字で入力してください'); return; }
   const btn = $('wkSaveBtn');
   btn.disabled = true; btn.textContent = '保存中…';
   try {
     if (editingWkId) {
-      await API.put(`/watchlist/${editingWkId}`, { company_name, status, shares, avg_price, benefit_months, dividend_yield, memo });
+      await API.put(`/watchlist/${editingWkId}`, { company_name, status, shares, avg_price, benefit_months, dividend_months, dividend_yield, memo });
     } else {
-      await API.post('/watchlist', { code, company_name, status, shares, avg_price, benefit_months, dividend_yield, memo });
+      await API.post('/watchlist', { code, company_name, status, shares, avg_price, benefit_months, dividend_months, dividend_yield, memo });
     }
     closeWatchModal();
     watchlist = await API.get('/watchlist');

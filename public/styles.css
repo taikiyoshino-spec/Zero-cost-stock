@@ -885,6 +885,22 @@ tbody tr:hover td.input-col {
   border-color: var(--primary);
   font-weight: 600;
 }
+.month-badge.dividend {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #86efac;
+}
+.month-badge.dividend.active {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+  font-weight: 600;
+}
+.month-chip.dividend.active {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
 
 .th-status { width: 80px; }
 .th-months { width: 90px; }
