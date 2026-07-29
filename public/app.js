@@ -1149,6 +1149,17 @@ function renderWatchlist() {
     month1: offsetMonth(cm, 1),
     month2: offsetMonth(cm, 2),
   };
+  const countFor = tab => tab === 'all'
+    ? watchlist.length
+    : watchlist.filter(item => {
+        const tm = targetMonth[tab];
+        return parseMonths(item.benefit_months).includes(tm) ||
+               parseMonths(item.dividend_months).includes(tm);
+      }).length;
+  ['all','month2','month1','month0'].forEach(tab => {
+    const el = $(`tabCount-${tab}`);
+    if (el) el.textContent = countFor(tab);
+  });
   const filtered = currentWatchTab === 'all'
     ? watchlist
     : watchlist.filter(item => {
