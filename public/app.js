@@ -713,7 +713,7 @@ function buildDrawer(sections) {
     <div class="drawer-section">
       <div class="drawer-section-title">${sec.title}</div>
       <div class="drawer-grid">
-        ${sec.rows.map(r => `<div class="drawer-item">
+        ${sec.rows.map(r => `<div class="drawer-item${r.full ? ' full' : ''}">
           <span class="drawer-label">${r.label}</span>
           <span class="drawer-value ${r.cls||''}">${r.value}</span>
         </div>`).join('')}
@@ -1342,7 +1342,7 @@ function openBenefitDrawer(id) {
       { label: '有効期限', value: escHtml(b.expires_at) },
       { label: '残り日数', value: `<span class="${daysCls(days)}">${fmtDaysLeft(days)}</span>` },
     ]},
-    ...(b.memo ? [{ title: '優待内容', rows: [{ label: 'メモ', value: escHtml(b.memo) }] }] : []),
+    ...(b.memo ? [{ title: '優待内容', rows: [{ label: 'メモ', value: escHtml(b.memo), full: true }] }] : []),
   ]);
   drawerContext = { type: 'benefit', id: b.id, code: b.code };
   $('drawerActions').innerHTML = buildDrawerActions('benefit');
@@ -1376,7 +1376,7 @@ function openWatchDrawer(id) {
       { label: '株価',          value: fmtYen(s?.closingPrice) },
       { label: '配当利回り',    value: fmtPct(s?.yieldValue) },
     ]},
-    ...(item.memo ? [{ title: 'メモ', rows: [{ label: '', value: escHtml(item.memo) }] }] : []),
+    ...(item.memo ? [{ title: 'メモ', rows: [{ label: '', value: escHtml(item.memo), full: true }] }] : []),
   ]);
   drawerContext = { type: 'watch', id: item.id, code: item.code };
   $('drawerActions').innerHTML = buildDrawerActions('watch');

@@ -612,8 +612,9 @@ tbody tr:hover td.input-col {
   gap: 10px;
 }
 .drawer-item { display: flex; flex-direction: column; gap: 2px; }
+.drawer-item.full { grid-column: 1 / -1; }
 .drawer-label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
-.drawer-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.drawer-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: pre-wrap; }
 
 /* ─── レスポンシブ（モバイル）──────────────────────────────────────────────── */
 @media (max-width: 767px) {
