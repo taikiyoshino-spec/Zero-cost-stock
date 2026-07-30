@@ -266,27 +266,32 @@ async function extractDividendMonths(html) {
   if (!fiscalEndMonth) return [];
 
   // 決算月行から15行以内で 第X四半期が2個以上ある行を列ヘッダーとして認識
+  // 列位置は「末尾（合計列）からの距離」で記録する。データ行には年度ラベルや
+  // 予想/実績ラベル、調整後合計など先頭に余分な列が付くことがあり、絶対列番号は
+  // ヘッダー行とデータ行でずれるため、末尾基準のオフセットで対応付ける。
   let headerRowIdx = -1;
-  const qColMap = {};
+  const qOffsetMap = {};
   for (let i = fiscalRowIdx; i < Math.min(rows.length, fiscalRowIdx + 15); i++) {
     const qCells = rows[i].filter(c => /第[1-4]四半期/.test(c));
     if (qCells.length >= 2) {
       headerRowIdx = i;
+      const len = rows[i].length;
       rows[i].forEach((cell, idx) => {
         const qm = cell.match(/第([1-4])四半期/);
-        if (qm) qColMap[parseInt(qm[1])] = idx;
+        if (qm) qOffsetMap[parseInt(qm[1])] = len - idx;
       });
       break;
     }
   }
-  if (headerRowIdx < 0 || Object.keys(qColMap).length === 0) return [];
+  if (headerRowIdx < 0 || Object.keys(qOffsetMap).length === 0) return [];
 
   // 列ヘッダー行の直後6行(予想・実績)を確認
   const months = new Set();
   for (let i = headerRowIdx + 1; i < Math.min(rows.length, headerRowIdx + 6); i++) {
     const row = rows[i];
-    for (const [q, colIdx] of Object.entries(qColMap)) {
-      if (colIdx >= row.length) continue;
+    for (const [q, offsetFromEnd] of Object.entries(qOffsetMap)) {
+      const colIdx = row.length - offsetFromEnd;
+      if (colIdx < 0 || colIdx >= row.length) continue;
       const v = parseFloat(row[colIdx]);
       if (!isNaN(v) && v > 0) {
         const offset = (4 - parseInt(q)) * 3;
