@@ -1450,6 +1450,7 @@ function openWatchModal(item = null) {
   $('wkDivMonthHint').textContent = '';
   setMonthChips(parseMonths(item?.benefit_months));
   setDivMonthChips(parseMonths(item?.dividend_months));
+  updateWkFetchIncentiveBtn();
   watchModal.classList.add('open');
   setTimeout(() => {
     if (!$('wkFieldCode').disabled) $('wkFieldCode').focus();
@@ -1469,6 +1470,39 @@ function closeWatchModal() {
 
 $('wkCancelBtn').addEventListener('click', closeWatchModal);
 watchModal.addEventListener('click', e => { if (e.target === watchModal) closeWatchModal(); });
+
+// 保有中（保有株数あり）のときだけ「Yahoo優待を取得」ボタンを表示
+function updateWkFetchIncentiveBtn() {
+  $('wkFetchIncentiveBtn').classList.toggle('hidden', $('wkFieldStatus').value !== 'holding');
+}
+$('wkFieldStatus').addEventListener('change', updateWkFetchIncentiveBtn);
+
+// 「Yahoo優待を取得」ボタン：優待内容をメモへ転記
+$('wkFetchIncentiveBtn').addEventListener('click', async () => {
+  const code = $('wkFieldCode').value.trim();
+  if (!/^\d{4}$/.test(code)) { alert('証券コードを入力してください'); return; }
+  const shares = parseInt($('wkFieldShares').value) || 0;
+  const btn = $('wkFetchIncentiveBtn');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '取得中…';
+  try {
+    const data = await API.get(`/incentive-info/${code}?shares=${shares}`);
+    if (data?.text) {
+      $('wkFieldMemo').value = data.text;
+    } else {
+      btn.textContent = '情報なし';
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+      return;
+    }
+  } catch {
+    btn.textContent = '取得失敗';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = orig;
+});
 
 // コード入力 → 会社名＋権利月を自動取得
 $('wkFieldCode').addEventListener('input', function() {
