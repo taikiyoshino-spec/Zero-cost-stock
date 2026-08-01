@@ -400,8 +400,8 @@ function buildDrawerActions(type) {
     return `<div class="drawer-action-grid">${edit}<div class="drawer-action-span2">${del}</div></div>`;
   }
   if (type === 'watch') {
-    const toWaitingReg = `<button class="btn-drawer-action move da-to-waiting-reg">🏦 恩株待ちへ登録</button>`;
-    return `<div class="drawer-action-grid">${edit}${toYuutai}${ref}${toWaitingReg}<div class="drawer-action-span2">${del}</div></div>`;
+    const toPurchaseReg = `<button class="btn-drawer-action move da-to-purchase-reg">🛒 購入検討へ登録</button>`;
+    return `<div class="drawer-action-grid">${edit}${toYuutai}${ref}${toPurchaseReg}<div class="drawer-action-span2">${del}</div></div>`;
   }
   return `<div class="drawer-action-grid">${edit}${ref}<div class="drawer-action-span2">${del}</div></div>`;
 }
@@ -1053,14 +1053,14 @@ $('drawerActions').addEventListener('click', async e => {
     }
     const companyName = scraped[code]?.companyName || '';
     openBenefitModal(null, { code, company_name: companyName, shares });
-  } else if (e.target.closest('.da-to-waiting-reg')) {
+  } else if (e.target.closest('.da-to-purchase-reg')) {
     closeDrawer();
     const item = watchlist.find(x => x.id == id);
     if (!item) return;
-    openWaitingModal();
-    $('wFieldCode').value = item.code;
-    $('wLotsContainer').innerHTML = '';
-    $('wLotsContainer').appendChild(createLotRow({
+    openModal();
+    $('fieldCode').value = item.code;
+    $('pLotsContainer').innerHTML = '';
+    $('pLotsContainer').appendChild(createLotRow({
       current_shares: item.shares || 0,
       avg_acquisition_price: item.avg_price || 0,
       is_nisa: 1,
