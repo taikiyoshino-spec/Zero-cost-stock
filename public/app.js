@@ -60,6 +60,11 @@ function fmtDaysLeft(days) {
   if (days === 0) return '今日まで';
   return `残り${days}日`;
 }
+function fmtDaysLeftShort(days) {
+  if (days < 0) return '期限切れ';
+  if (days === 0) return '今日まで';
+  return `${days}日`;
+}
 function expiryRowCls(days) {
   if (days < 0) return 'expiry-expired';
   if (days <= 7) return 'expiry-danger';
@@ -1132,7 +1137,7 @@ function renderBenefits() {
       <td class="code-cell desktop-only">${b.tag ? `<span class="tag-chip">${escHtml(b.tag)}</span>` : '—'}</td>
       <td class="memo-cell desktop-only">${escHtml(b.memo || '—')}</td>
       <td class="num-cell">${escHtml(b.expires_at)}</td>
-      <td class="num-cell"><span class="${dCls}">${fmtDaysLeft(days)}</span></td>`;
+      <td class="num-cell"><span class="${dCls}">${fmtDaysLeftShort(days)}</span></td>`;
     tbody.appendChild(tr);
   }
 }
