@@ -793,6 +793,14 @@ tbody tr:hover td.input-col {
 .th-tag   { text-align: left;  min-width: 80px; }
 .th-text  { text-align: left;  min-width: 140px; }
 
+/* width:100%の自動レイアウトだと余白が他列に再配分され「残り」列が
+   画面外に押し出されるため、このテーブルのみ固定レイアウトにし、
+   「残り」列（width未指定）が残りスペースを受け取るようにする */
+#benefitTable { table-layout: fixed; min-width: 0; }
+#benefitTable .th-num  { width: 90px; }
+#benefitTable .th-tag  { width: 80px; }
+#benefitTable .th-text { width: 160px; }
+
 .expiry-warn  { background: #fffbeb !important; }
 .expiry-warn td { background: #fffbeb !important; }
 .expiry-warn:hover { background: #fef3c7 !important; }
