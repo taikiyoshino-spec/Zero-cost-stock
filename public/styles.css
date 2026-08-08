@@ -248,7 +248,7 @@ thead th {
   user-select: none;
 }
 .th-code { text-align: left; min-width: 68px; }
-.th-name { text-align: left; min-width: 110px; }
+.th-name { text-align: left; min-width: 110px; width: 160px; }
 .th-num  { text-align: right; min-width: 80px; }
 .th-action { text-align: center; min-width: 54px; }
 
@@ -652,7 +652,7 @@ tbody tr:hover td.input-col {
   .th-action { min-width: 36px; }
   .action-open-btn { font-size: 16px; padding: 4px 8px; }
   .code-badge { font-size: 10px; padding: 1px 2px; letter-spacing: 0; }
-  .th-name { min-width: 72px; }
+  .th-name { min-width: 72px; width: 100px; }
   .th-num  { min-width: 60px; }
   .company-name { max-width: 100px; }
 
