@@ -109,13 +109,12 @@ function monthBadgesHtml(benefit_months, dividend_months, hlMonth) {
   const bm = parseMonths(benefit_months);
   const dm = parseMonths(dividend_months);
   if (!bm.length && !dm.length) return '—';
-  const bmHtml = bm.map(m =>
-    `<span class="month-badge${m === hlMonth ? ' active' : ''}">${m}月</span>`
-  ).join('');
-  const dmHtml = dm.map(m =>
-    `<span class="month-badge dividend${m === hlMonth ? ' active' : ''}">${m}月</span>`
-  ).join('');
-  return bmHtml + dmHtml;
+  const row = (months, cls) => months.length
+    ? `<div class="month-badge-row">${months.map(m =>
+        `<span class="month-badge ${cls}${m === hlMonth ? ' active' : ''}">${m}月</span>`
+      ).join('')}</div>`
+    : '';
+  return row(dm, 'dividend') + row(bm, '');
 }
 
 function nameHtml(code, s, isLoad, hasErr) {

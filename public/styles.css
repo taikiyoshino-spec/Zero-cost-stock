@@ -934,17 +934,22 @@ tbody tr:hover td.input-col {
   border-color: #16a34a;
   color: #fff;
 }
+.month-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.month-badge-row + .month-badge-row { margin-top: 3px; }
 
 .th-status { width: 46px; }
-.th-months { min-width: 90px; }
+.th-months { width: 100px; }
 .status-cell { white-space: nowrap; }
-.months-cell { white-space: nowrap; }
+.months-cell { white-space: normal; }
 
-/* width:100%の自動レイアウトだと余白が状態列などに再配分されて
-   しまうため固定レイアウトにし、権利月列（width未指定）が
-   余りスペースを受け取るようにする（バッジ数が可変で最も
-   幅を必要とするため、他列より後ろに配置している） */
-#watchTable { table-layout: fixed; min-width: 0; }
+/* width:100%だと列数が少ないこのテーブルでは余白が再配分され列幅が
+   崩れるため固定レイアウトにし、全列にwidthを指定した上でテーブル
+   自体はwidth:autoにして必要な幅だけ使うようにする（余白を残さない） */
+#watchTable { table-layout: fixed; width: auto; min-width: 0; }
 #watchTable .th-profit { width: 90px; }
 #watchTable .th-num.desktop-only { width: 90px; }
 
