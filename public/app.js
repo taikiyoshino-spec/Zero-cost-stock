@@ -1226,8 +1226,8 @@ function renderWatchlist() {
         <a class="incentive-link" href="https://finance.yahoo.co.jp/quote/${item.code}.T/incentive" target="_blank" rel="noopener" title="株主優待">優待</a>
       </span></td>
       <td class="status-cell">${statusBadge(item.status)}</td>
-      <td class="months-cell">${monthBadgesHtml(item.benefit_months, item.dividend_months, hlMonth)}</td>
       <td class="num-cell ${signCls(profitLoss)}">${!isHolding ? '—' : (isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(profitLoss)))}</td>
+      <td class="months-cell">${monthBadgesHtml(item.benefit_months, item.dividend_months, hlMonth)}</td>
       <td class="num-cell desktop-only">${item.shares ? fmt(item.shares) + '株' : '—'}</td>
       <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(s?.closingPrice))}</td>
       <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>`;

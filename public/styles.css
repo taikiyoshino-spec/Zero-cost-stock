@@ -936,14 +936,16 @@ tbody tr:hover td.input-col {
 }
 
 .th-status { width: 46px; }
-.th-months { width: 90px; }
+.th-months { min-width: 90px; }
 .status-cell { white-space: nowrap; }
 .months-cell { white-space: nowrap; }
 
 /* width:100%の自動レイアウトだと余白が状態列などに再配分されて
-   しまうため固定レイアウトにし、損益列（width未指定）が
-   余りスペースを受け取るようにする */
+   しまうため固定レイアウトにし、権利月列（width未指定）が
+   余りスペースを受け取るようにする（バッジ数が可変で最も
+   幅を必要とするため、他列より後ろに配置している） */
 #watchTable { table-layout: fixed; min-width: 0; }
+#watchTable .th-profit { width: 90px; }
 #watchTable .th-num.desktop-only { width: 90px; }
 
 /* ボトムナビ3つ対応 */
