@@ -98,9 +98,12 @@ function offsetMonth(base, n) {
   return ((base - 1 + n) % 12) + 1;
 }
 function statusBadge(status) {
-  if (status === 'min_hold') return '<span class="status-badge status-min-hold">🔖 最小保有</span>';
-  if (status === 'holding')  return '<span class="status-badge status-holding">✅ 保有中</span>';
-  return '<span class="status-badge status-watching">👀 ウォッチ中</span>';
+  if (status === 'min_hold') return statusBadgeHtml('status-min-hold', '🔖', '最小保有');
+  if (status === 'holding')  return statusBadgeHtml('status-holding', '✅', '保有中');
+  return statusBadgeHtml('status-watching', '👀', 'ウォッチ中');
+}
+function statusBadgeHtml(cls, icon, text) {
+  return `<span class="status-badge ${cls}"><span class="status-icon">${icon}</span><span class="status-text">${text}</span></span>`;
 }
 function monthBadgesHtml(benefit_months, dividend_months, hlMonth) {
   const bm = parseMonths(benefit_months);
@@ -1201,7 +1204,7 @@ function renderWatchlist() {
       });
   if (filtered.length === 0) {
     const label = { all:'全て', month2:'前々月', month1:'前月', month0:'当月' }[currentWatchTab] || '';
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="7"><span class="empty-icon">📋</span>${label}に該当する銘柄がありません。</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8"><span class="empty-icon">📋</span>${label}に該当する銘柄がありません。</td></tr>`;
     return;
   }
   const hlMonth = currentWatchTab !== 'all' ? targetMonth[currentWatchTab] : null;
@@ -1209,6 +1212,10 @@ function renderWatchlist() {
     const s = scraped[item.code];
     const isLoad = loading.has(item.code);
     const hasErr = !!s?.error;
+    const isHolding = item.status === 'holding';
+    const profitLoss = (isHolding && item.shares && item.avg_price != null && s?.closingPrice != null)
+      ? (s.closingPrice - item.avg_price) * item.shares
+      : null;
     const tr = document.createElement('tr');
     tr.dataset.wkid = item.id;
     tr.dataset.code  = item.code;
@@ -1220,6 +1227,7 @@ function renderWatchlist() {
       </span></td>
       <td class="status-cell">${statusBadge(item.status)}</td>
       <td class="months-cell">${monthBadgesHtml(item.benefit_months, item.dividend_months, hlMonth)}</td>
+      <td class="num-cell ${signCls(profitLoss)}">${!isHolding ? '—' : (isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(profitLoss)))}</td>
       <td class="num-cell desktop-only">${item.shares ? fmt(item.shares) + '株' : '—'}</td>
       <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtYen(s?.closingPrice))}</td>
       <td class="num-cell desktop-only">${isLoad ? loadingSpan() : (hasErr ? errSpan() : fmtPct(s?.yieldValue))}</td>`;

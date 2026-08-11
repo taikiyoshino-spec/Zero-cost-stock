@@ -862,13 +862,19 @@ tbody tr:hover td.input-col {
 /* ─── ウォッチリスト ─────────────────────────────────────────────────────────── */
 
 .status-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 3px 4px;
+  border-radius: 8px;
   font-weight: 600;
   white-space: nowrap;
+  line-height: 1.2;
 }
+.status-icon { font-size: 13px; }
+.status-text { font-size: 9px; }
 .status-watching { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 .status-min-hold { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
 .status-holding  { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
@@ -929,10 +935,16 @@ tbody tr:hover td.input-col {
   color: #fff;
 }
 
-.th-status { width: 80px; }
+.th-status { width: 46px; }
 .th-months { width: 90px; }
 .status-cell { white-space: nowrap; }
 .months-cell { white-space: nowrap; }
+
+/* width:100%の自動レイアウトだと余白が状態列などに再配分されて
+   しまうため固定レイアウトにし、損益列（width未指定）が
+   余りスペースを受け取るようにする */
+#watchTable { table-layout: fixed; min-width: 0; }
+#watchTable .th-num.desktop-only { width: 90px; }
 
 /* ボトムナビ3つ対応 */
 .bottom-nav { grid-template-columns: repeat(3, 1fr); }
