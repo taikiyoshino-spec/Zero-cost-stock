@@ -936,6 +936,16 @@ tbody tr:hover td.input-col {
 }
 .month-badge-row { white-space: nowrap; }
 .month-badge-row + .month-badge-row { margin-top: 3px; }
+.month-legend {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+.month-legend .legend-line { display: block; white-space: nowrap; }
 
 .th-status { width: 46px; }
 .th-months { width: 100px; }
