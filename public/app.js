@@ -392,14 +392,15 @@ function buildDrawerActions(type) {
   const toWait    = `<button class="btn-drawer-action move da-move">↗ 恩株待ちへ移行</button>`;
   const toAchieve = `<button class="btn-drawer-action move da-achieve">🎯 恩株化へ移行</button>`;
   const toYuutai  = `<button class="btn-drawer-action da-benefit-reg">🎁 優待登録</button>`;
+  const toWatch   = `<button class="btn-drawer-action da-to-watch-reg">🔭 ウォッチへ登録</button>`;
   if (type === 'purchase') {
-    return `<div class="drawer-action-grid">${edit}${toWait}${ref}${del}</div>`;
+    return `<div class="drawer-action-grid">${edit}${toWait}${toWatch}${ref}<div class="drawer-action-span2">${del}</div></div>`;
   }
   if (type === 'waiting') {
-    return `<div class="drawer-action-grid">${edit}${toAchieve}${ref}${toYuutai}<div class="drawer-action-span2">${del}</div></div>`;
+    return `<div class="drawer-action-grid">${edit}${toAchieve}${ref}${toYuutai}${toWatch}<div class="drawer-action-span2">${del}</div></div>`;
   }
   if (type === 'achieved') {
-    return `<div class="drawer-action-grid">${edit}${toYuutai}${ref}${del}</div>`;
+    return `<div class="drawer-action-grid">${edit}${toYuutai}${toWatch}${ref}<div class="drawer-action-span2">${del}</div></div>`;
   }
   if (type === 'benefit') {
     return `<div class="drawer-action-grid">${edit}<div class="drawer-action-span2">${del}</div></div>`;
@@ -1058,6 +1059,32 @@ $('drawerActions').addEventListener('click', async e => {
     }
     const companyName = scraped[code]?.companyName || '';
     openBenefitModal(null, { code, company_name: companyName, shares });
+  } else if (e.target.closest('.da-to-watch-reg')) {
+    closeDrawer();
+    let shares = 0, avgPrice = null;
+    if (type === 'purchase') {
+      const s = stocks.find(x => x.id == id);
+      const lots = getLots(s);
+      shares = lots.reduce((sum, l) => sum + (l.current_shares | 0), 0);
+      const cost = lots.reduce((sum, l) => sum + (l.current_shares | 0) * (+(l.avg_acquisition_price) || 0), 0);
+      avgPrice = shares > 0 ? cost / shares : null;
+    } else if (type === 'waiting') {
+      const s = waitingStocks.find(x => x.id == id);
+      const lots = getLots(s);
+      shares = lots.reduce((sum, l) => sum + (l.current_shares | 0), 0);
+      const cost = lots.reduce((sum, l) => sum + (l.current_shares | 0) * (+(l.avg_acquisition_price) || 0), 0);
+      avgPrice = shares > 0 ? cost / shares : null;
+    } else {
+      const s = achievedStocks.find(x => x.id == id);
+      shares = s?.current_shares ?? 0;
+    }
+    openWatchModal();
+    $('wkFieldCode').value    = code;
+    $('wkFieldShares').value  = shares || '';
+    $('wkFieldAvgPrice').value = avgPrice ? Math.round(avgPrice) : '';
+    $('wkFieldStatus').value  = shares > 0 ? 'holding' : 'watching';
+    updateWkFetchIncentiveBtn();
+    $('wkFieldCode').dispatchEvent(new Event('input'));
   } else if (e.target.closest('.da-to-purchase-reg')) {
     closeDrawer();
     const item = watchlist.find(x => x.id == id);
