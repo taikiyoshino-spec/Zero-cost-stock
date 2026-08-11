@@ -934,11 +934,7 @@ tbody tr:hover td.input-col {
   border-color: #16a34a;
   color: #fff;
 }
-.month-badge-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-}
+.month-badge-row { white-space: nowrap; }
 .month-badge-row + .month-badge-row { margin-top: 3px; }
 
 .th-status { width: 46px; }
