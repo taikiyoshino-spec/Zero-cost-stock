@@ -952,6 +952,25 @@ tbody tr:hover td.input-col {
 .status-cell { white-space: nowrap; }
 .months-cell { white-space: normal; }
 
+.status-filter-select {
+  width: 100%;
+  max-width: 64px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-sub);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 3px 2px;
+  cursor: pointer;
+}
+.status-filter-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
 /* width:100%だと列数が少ないこのテーブルでは余白が再配分され列幅が
    崩れるため固定レイアウトにし、全列にwidthを指定した上でテーブル
    自体はwidth:autoにして必要な幅だけ使うようにする（余白を残さない） */

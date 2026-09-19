@@ -283,6 +283,7 @@ let achievedStocks  = [];
 let benefits        = [];
 let watchlist       = [];
 let currentWatchTab = 'all';
+let currentWatchStatus = 'all';
 let scraped         = {};
 const loading       = new Set();
 let drawerContext   = null;
@@ -349,6 +350,11 @@ function switchWatchTab(tab) {
   $('tab-watch').classList.remove('hidden');
   renderWatchlist();
 }
+
+$('wkStatusFilter').addEventListener('change', e => {
+  currentWatchStatus = e.target.value;
+  renderWatchlist();
+});
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1183,24 +1189,22 @@ function renderWatchlist() {
     month1: offsetMonth(cm, 1),
     month2: offsetMonth(cm, 2),
   };
-  const countFor = tab => tab === 'all'
-    ? watchlist.length
-    : watchlist.filter(item => {
+  const byStatus = list => currentWatchStatus === 'all'
+    ? list
+    : list.filter(item => item.status === currentWatchStatus);
+  const byMonth = (list, tab) => tab === 'all'
+    ? list
+    : list.filter(item => {
         const tm = targetMonth[tab];
         return parseMonths(item.benefit_months).includes(tm) ||
                parseMonths(item.dividend_months).includes(tm);
-      }).length;
+      });
+  const countFor = tab => byMonth(byStatus(watchlist), tab).length;
   ['all','month2','month1','month0'].forEach(tab => {
     const el = $(`tabCount-${tab}`);
     if (el) el.textContent = countFor(tab);
   });
-  const filtered = currentWatchTab === 'all'
-    ? watchlist
-    : watchlist.filter(item => {
-        const tm = targetMonth[currentWatchTab];
-        return parseMonths(item.benefit_months).includes(tm) ||
-               parseMonths(item.dividend_months).includes(tm);
-      });
+  const filtered = byMonth(byStatus(watchlist), currentWatchTab);
   if (filtered.length === 0) {
     const label = { all:'全て', month2:'前々月', month1:'前月', month0:'当月' }[currentWatchTab] || '';
     tbody.innerHTML = `<tr class="empty-row"><td colspan="8"><span class="empty-icon">📋</span>${label}に該当する銘柄がありません。</td></tr>`;
