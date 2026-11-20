@@ -15,3 +15,11 @@ binding = "DB"
 database_name = "zero-cost-stock-db"
 database_id = "c6b76402-661d-4d94-8356-36802d91befd"
 migrations_dir = "migrations"
+
+[vars]
+# LINE 通知に載せるアプリの URL
+APP_URL = "https://zero-cost-stock.zero-cost-stock.workers.dev"
+
+# 恩株売値の到達チェック：平日 9:00〜15:30（日本時間）に 30 分ごと。cron は UTC で書く
+[triggers]
+crons = ["*/30 0-6 * * 1-5"]

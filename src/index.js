@@ -1,7 +1,10 @@
 /**
  * 恩株管理ツール - Cloudflare Worker
  * REST API + Yahoo Finance Japan / Google Finance スクレイピングプロキシ
+ * + 恩株化ライン到達の LINE 通知（Cron Trigger）
  */
+
+import { runOnkabuCheck, sendLine } from './onkabu-notify.js';
 
 const BROWSER_HEADERS = {
   'User-Agent':
@@ -782,8 +785,68 @@ async function handleApi(request, env, path) {
     }
   }
 
+  // ── LINE 通知 ─────────────────────────────────────────────────────────────────
+
+  // POST /api/notify/test（LINE にテスト通知を送る）
+  if (path === '/api/notify/test' && method === 'POST') {
+    try {
+      await sendLine(env, '恩株管理ツールからのテスト通知です。\nこのメッセージが届いていれば、恩株売値に到達したときの通知も届きます。');
+      return json({ ok: true });
+    } catch (e) {
+      return err(e.message, 500);
+    }
+  }
+
+  // POST /api/notify/run（定期チェックを今すぐ実行する。到達した銘柄があれば通知も送る）
+  if (path === '/api/notify/run' && method === 'POST') {
+    return json(await runOnkabuCheck(env, notifyDeps));
+  }
+
   return err('Not Found', 404);
 }
+
+// ─── 通知の定期チェック用：株価・会社名だけを軽く取得 ───────────────────────────
+// Workers 無料プランは 1 回の実行で外部取得 50 回までなので、scrapeStock（最大 4 回）は使わない
+
+async function fetchClosingPrice(code) {
+  try {
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${code}.T?interval=1d&range=1d`,
+      { headers: { ...BROWSER_HEADERS, Accept: 'application/json',
+                   Origin: 'https://finance.yahoo.com', Referer: 'https://finance.yahoo.com/' } },
+    );
+    if (res.ok) {
+      const meta = (await res.json())?.chart?.result?.[0]?.meta;
+      const p = meta?.regularMarketPrice ?? meta?.previousClose ?? null;
+      if (p != null) return p;
+    }
+  } catch {}
+  try {
+    const res = await fetch(`https://www.google.com/finance/quote/${code}:TYO`, { headers: BROWSER_HEADERS });
+    if (res.ok) {
+      const html = await res.text();
+      const m = html.match(/<div class="YMlKec fxKbKc">(.*?)<\/div>/);
+      if (m) {
+        const v = parseFloat(m[1].replace(/[¥,\s]/g, ''));
+        if (!isNaN(v)) return v;
+      }
+      const m2 = html.match(/data-last-price="([\d.]+)"/);
+      if (m2) return parseFloat(m2[1]);
+    }
+  } catch {}
+  return null;
+}
+
+async function fetchCompanyName(code) {
+  try {
+    const res = await fetch(`https://finance.yahoo.co.jp/quote/${code}.T`, { headers: BROWSER_HEADERS });
+    if (!res.ok) return null;
+    const m = (await res.text()).match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    return m ? (cleanCompanyName(m[1]) || null) : null;
+  } catch { return null; }
+}
+
+const notifyDeps = { fetchPrice: fetchClosingPrice, fetchName: fetchCompanyName };
 
 // ─── 認証（APP_PASSWORD による簡易ログイン）──────────────────────────────────
 
@@ -934,5 +997,14 @@ export default {
 
     // 静的ファイル（public/ ディレクトリ）を配信
     return env.ASSETS.fetch(request);
+  },
+
+  // Cron Trigger（wrangler.toml の [triggers]）：取引時間中 30 分ごとに恩株売値の到達を確認
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      runOnkabuCheck(env, notifyDeps)
+        .then(r => console.log('onkabu-check', JSON.stringify(r)))
+        .catch(e => console.error('onkabu-check failed', e)),
+    );
   },
 };

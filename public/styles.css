@@ -416,6 +416,21 @@ tbody tr:hover td.input-col {
   white-space: nowrap;
 }
 .fetch-issues-btn:hover { background: #fef3c7; }
+.notify-test-btn {
+  background: transparent;
+  color: var(--text-sub);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.notify-test-btn:hover { background: var(--bg); }
+.notify-test-btn:disabled { opacity: .5; cursor: default; }
+@media (max-width: 767px) {
+  .notify-test-btn .label { display: none; }
+}
 .fetch-issues-panel {
   background: #fffbeb;
   border-bottom: 1px solid #fcd34d;

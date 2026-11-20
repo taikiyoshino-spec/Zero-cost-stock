@@ -43,6 +43,15 @@
 - 権利月は配当（🟢）と優待（⚪）の 2 段で表示。Yahoo!ファイナンスから自動取得できる
 - 恩株管理の銘柄からウォッチへ登録、ウォッチから購入検討へ登録ができる
 
+### LINE 通知（恩株売値への到達）
+
+- 平日 9:00〜15:30（日本時間）に 30 分ごと、恩株待ちの銘柄の株価を自動で確認する（Cloudflare の Cron Trigger）
+- 恩株差がプラス（＝今の株価で売却すれば元本を回収できる）になった銘柄があれば、LINE にまとめて 1 通で通知する
+- 通知するのは「未到達 → 到達」に変わったときだけ。株価が恩株売値の前後を行き来しても、同じ銘柄の通知は 1 日 1 回まで
+- 恩株差の計算は画面（恩株待ちタブ）と同じ式（非NISA 分の税も考慮）
+- 画面上部の「🔔 通知テスト」で LINE にテスト通知を送れる
+- 設定方法は下の「LINE 通知の設定」を参照
+
 ### 共通
 
 - パスワードによるログイン（30 日間ログイン維持、右上でログアウト）
@@ -104,7 +113,8 @@
 ```
 Zero-cost-stock/
 ├── src/
-│   └── index.js            # Cloudflare Worker（API + スクレイピング + 認証）
+│   ├── index.js            # Cloudflare Worker（API + スクレイピング + 認証 + 定期実行）
+│   └── onkabu-notify.js    # 恩株売値到達の判定と LINE 通知
 ├── public/
 │   ├── index.html          # フロントエンド HTML
 │   ├── styles.css          # レスポンシブ CSS
@@ -127,6 +137,7 @@ Zero-cost-stock/
 | `benefit_expirations` | 優待期限 |
 | `benefit_templates` | 優待メモのテンプレート（銘柄ごと） |
 | `watchlist` | ウォッチ |
+| `onkabu_notify_state` | LINE 通知用：銘柄ごとの前回チェック結果と最終通知日時 |
 | `d1_migrations` | 適用済みマイグレーションの記録（wrangler が自動作成） |
 
 ### API
@@ -149,6 +160,8 @@ Zero-cost-stock/
 | GET | `/api/stock-data/:code` | 終値・会社名・利回り・配当予想を取得 |
 | GET | `/api/watch-info/:code` | 優待・配当の権利月を取得 |
 | GET | `/api/incentive-info/:code?shares=N` | 保有株数に応じた優待内容を取得 |
+| POST | `/api/notify/test` | LINE にテスト通知を送る |
+| POST | `/api/notify/run` | 恩株売値の到達チェックを今すぐ実行（到達していれば通知も送る） |
 
 ログイン関連は `/login`（GET: 画面 / POST: ログイン）と `/logout`（POST）。
 
@@ -227,6 +240,27 @@ APP_PASSWORD=ローカル用の任意のパスワード
 - ログインすると 30 日間 Cookie で維持される。右上の「ログアウト」で解除できる
 - パスワードを変更すると、すべての端末のログインが無効になる（データは消えない）
 - パスワードを忘れたら、同じコマンドで登録し直せばよい
+
+### LINE 通知の設定
+
+自分専用の LINE 公式アカウント（Messaging API）を作り、そこから自分に通知を送る。無料プランで月 200 通まで。
+
+1. [LINE Developers](https://developers.line.biz/console/) に LINE アカウントでログインし、プロバイダーを作る（名前は任意）
+2. 「Messaging API チャネル」を作る（チャネル名は通知の送信者名になる。例: 恩株通知）
+3. チャネルの「Messaging API 設定」タブで
+   - QR コードを LINE で読み取り、公式アカウントを友だち追加する
+   - 一番下の「チャネルアクセストークン（長期）」を「発行」してコピーする
+4. 「チャネル基本設定」タブの一番下にある「あなたのユーザー ID」（`U` で始まる文字列）をコピーする
+5. 2 つを Cloudflare の secret に登録する（ダッシュボードの「変数とシークレット」でも可）
+
+```bash
+npx wrangler secret put LINE_CHANNEL_ACCESS_TOKEN
+npx wrangler secret put LINE_USER_ID
+```
+
+6. アプリ上部の「🔔 通知テスト」を押して、LINE にテスト通知が届くか確認する
+
+> LINE 公式アカウントの自動応答メッセージが不要なら、LINE Official Account Manager の「応答設定」でオフにする。
 
 ### 6. ローカルで動作確認
 

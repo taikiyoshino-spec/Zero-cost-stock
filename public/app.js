@@ -458,6 +458,22 @@ $('fetchIssuesBtn').addEventListener('click', () => {
   $('fetchIssuesBtn').setAttribute('aria-expanded', String(open));
 });
 
+// ─── LINE 通知テスト ─────────────────────────────────────────────────────────
+
+$('notifyTestBtn').addEventListener('click', async () => {
+  if (!confirm('LINE にテスト通知を送りますか？')) return;
+  const btn = $('notifyTestBtn');
+  btn.disabled = true;
+  try {
+    await API.post('/notify/test', {});
+    alert('テスト通知を送りました。LINE を確認してください。');
+  } catch (e) {
+    alert(`送信できませんでした。\n${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $('fetchIssuesRetryBtn').addEventListener('click', () => {
   for (const { code } of collectFetchIssues()) { Cache.clear(code); fetchScraped(code, true); }
 });
