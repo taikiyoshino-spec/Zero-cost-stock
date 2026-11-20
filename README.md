@@ -245,13 +245,19 @@ APP_PASSWORD=ローカル用の任意のパスワード
 
 自分専用の LINE 公式アカウント（Messaging API）を作り、そこから自分に通知を送る。無料プランで月 200 通まで。
 
-1. [LINE Developers](https://developers.line.biz/console/) に LINE アカウントでログインし、プロバイダーを作る（名前は任意）
-2. 「Messaging API チャネル」を作る（チャネル名は通知の送信者名になる。例: 恩株通知）
-3. チャネルの「Messaging API 設定」タブで
-   - QR コードを LINE で読み取り、公式アカウントを友だち追加する
-   - 一番下の「チャネルアクセストークン（長期）」を「発行」してコピーする
-4. 「チャネル基本設定」タブの一番下にある「あなたのユーザー ID」（`U` で始まる文字列）をコピーする
-5. 2 つを Cloudflare の secret に登録する（ダッシュボードの「変数とシークレット」でも可）
+現在は LINE Developers から Messaging API チャネルを直接作れないため、先に LINE 公式アカウントを作る。
+（スマホのブラウザだけでも設定できる）
+
+1. [LINE Developers](https://developers.line.biz/console/) に LINE アカウントでログインし、「新規プロバイダー作成」でプロバイダーを作る（名前は任意）
+2. [LINE公式アカウントの開設ページ](https://www.lycbiz.com/jp/signup/)で「LINE 公式アカウント」の「アカウント開設」から公式アカウントを作る
+   - アカウント名が通知の送信者名になる（例: 恩株通知）
+   - 途中の「ビジネスマネージャーの組織」は「組織を作成」を選ぶ（個人でも作れる・無料）
+3. [LINE Official Account Manager](https://manager.line.biz) で作ったアカウントを開き、「設定」→「Messaging API」→「Messaging APIを利用する」を押して、1 のプロバイダーを選ぶ
+   （スマホアプリ版の設定に項目が無い場合はブラウザ版で行う。Webhook URL は空欄のままでよい）
+4. LINE Developers に戻り、プロバイダー内にできたチャネルを開く
+   - 「Messaging API設定」タブ：QR コードを LINE で読み取って友だち追加し、一番下の「チャネルアクセストークン（長期）」を発行してコピーする
+   - 「チャネル基本設定」タブ：一番下の「あなたのユーザー ID」（`U` で始まる文字列）をコピーする
+5. 2 つを Cloudflare の secret に登録する（ダッシュボードの「Workers & Pages → zero-cost-stock → 設定 → 変数とシークレット」で、種類「シークレット」として追加してもよい）
 
 ```bash
 npx wrangler secret put LINE_CHANNEL_ACCESS_TOKEN
@@ -260,7 +266,9 @@ npx wrangler secret put LINE_USER_ID
 
 6. アプリ上部の「🔔 通知テスト」を押して、LINE にテスト通知が届くか確認する
 
-> LINE 公式アカウントの自動応答メッセージが不要なら、LINE Official Account Manager の「応答設定」でオフにする。
+> - Channel secret はこのツールでは使わない。人に見せてしまった場合は「チャネル基本設定」で再発行しておく。
+> - 公式アカウントの自動応答メッセージが不要なら、LINE Official Account Manager の「応答設定」でオフにする。
+> - 通知は LINE の無料メッセージ枠（月 200 通）を使う。1 回のチェックで送るのは最大 1 通。
 
 ### 6. ローカルで動作確認
 
