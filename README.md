@@ -1,29 +1,63 @@
-# 恩株管理ツール
+# 恩株管理ツール（NISA用）
 
-Yahoo Finance Japan / Google Finance からデータを取得し、恩株化の目標・進捗を管理する Web アプリ。
+恩株（売却で元本を回収したあとに残る株）を目指す銘柄の購入検討から恩株化までの進捗、株主優待の有効期限、権利月ごとのウォッチリストを管理する個人用 Web アプリ。
+株価・配当・優待の情報は Yahoo!ファイナンス / Google Finance から自動取得する。
 
 **構成: Cloudflare Workers + D1 (SQLite) → 月額 ¥0（無料枠内）**
+
+- 本番 URL: https://zero-cost-stock.zero-cost-stock.workers.dev （パスワードでログイン）
+- `main` ブランチに push すると GitHub Actions で自動デプロイされる
 
 ---
 
 ## 機能
 
-| 機能 | 説明 |
+画面は下部ナビ（スマホ）／タブで 3 つのセクションに分かれる。
+
+### 恩株管理
+
+| タブ | 内容 |
 |------|------|
-| 銘柄登録 | 4桁証券コード・目標保有数・恩株数などを登録 |
-| データ自動取得 | 終値・会社名・利回り・配当予想をスクレイピング（30分キャッシュ） |
-| 恩株差表示 | 現在の終値と恩株売値の差を色付きで表示（緑=達成可・赤=未達） |
-| 損益表示 | 現在保有分の含み損益をリアルタイム計算 |
-| PC/スマホ対応 | レスポンシブ表示。スマホでは詳細ドロワーで全項目確認可能 |
-| オフライン耐性 | スクレイピングデータは localStorage に 30分キャッシュ |
+| 購入検討 | 目標保有数・恩株数・現在の保有を登録し、追加購入額と「恩株差」（今の株価で恩株化できるか）を表示 |
+| 恩株待ち | 目標数まで買い終えた銘柄。売値（恩株化できる株価）・現在売却した場合の金額・売却前後の配当を表示 |
+| 恩株化 | 恩株化が完了した銘柄。残った株の評価額・配当予想を表示 |
+
+- 銘柄は **購入検討 → 恩株待ち → 恩株化** とドロワーのボタンで移行できる
+- 保有は複数口座（ロット）で登録でき、ロットごとに **NISA / 非NISA** を選べる。非NISA 分は売却益への税（20.315%）を考慮して恩株差を計算する
+- 恩株差は緑＝達成可・赤＝未達で色分け
+
+### 優待期限
+
+- 受け取った株主優待（券・ポイントなど）の有効期限と残り日数を一覧表示。期限切れ・7日以内・30日以内で色分けして強調
+- 銘柄ごとに前回のメモ・種類をテンプレートとして記憶し、次回登録時に自動入力
+- 保有株数に応じた優待内容を Yahoo!ファイナンスの優待ページから取得してメモに入れられる
+
+### ウォッチ
+
+| タブ | 内容 |
+|------|------|
+| 全て | 登録した全銘柄 |
+| 前々月 / 前月 / 当月 | 権利月がそれぞれ「2か月後」「来月」「今月」の銘柄（権利確定の何か月前かで絞り込み） |
+
+- 状態（ウォッチ中 / 保有中 / 最小保有）で絞り込み可能。各タブに件数バッジを表示
+- 権利月は配当（🟢）と優待（⚪）の 2 段で表示。Yahoo!ファイナンスから自動取得できる
+- 恩株管理の銘柄からウォッチへ登録、ウォッチから購入検討へ登録ができる
+
+### 共通
+
+- パスワードによるログイン（30 日間ログイン維持、右上でログアウト）
+- PC / スマホ対応。スマホでは行をタップすると詳細ドロワーで全項目を確認・操作できる
+- 取得した株価データはブラウザに 30 分キャッシュ。右上の「↻ 更新」で全銘柄を再取得
 
 ---
 
 ## 計算式
 
+### 購入検討
+
 ```
 購入数       = 目標保有数 - 現在保有数
-現在取得金額 = 現在保有数 × 取得平均額
+現在取得金額 = Σ(ロットの保有数 × 取得平均額)
 取得金額     = 現在取得金額 + 購入数 × 終値
 売却数       = 目標保有数 - 恩株数
 恩株売値     = 取得金額 ÷ 売却数          ← 恩株化できる売値
@@ -33,14 +67,112 @@ Yahoo Finance Japan / Google Finance からデータを取得し、恩株化の�
 現在損益     = 終値 × 現在保有数 - 現在取得金額
 ```
 
+### 恩株待ち
+
+```
+売却数   = 保有数 - 恩株数
+売値     = 取得金額 ÷ 売却数
+現売値   = 売却数 × 終値（非NISA 分は売却益の税を差し引き）
+現配当   = 保有数 × 配当予想
+後配当   = 恩株数 × 配当予想（恩株化後に残る配当）
+```
+
+### 非NISA 分を含む場合の恩株差
+
+非NISA 比率 `f`、非NISA 分の平均取得額 `a`、税率 `T = 0.20315` として、税引き後に元本を回収できる株価を
+
+```
+損益分岐株価 = (恩株売値 - f × a × T) ÷ (1 - f × T)
+恩株差       = 終値 - 損益分岐株価
+```
+
+で求める（全口座から保有比率どおりに売る前提）。
+
 ---
 
-## セットアップ手順
+## 技術構成
+
+| 層 | 内容 |
+|----|------|
+| バックエンド | Cloudflare Workers（`src/index.js`）。API・スクレイピング・ログイン認証 |
+| DB | Cloudflare D1（SQLite）。テーブル定義は `migrations/` で管理 |
+| フロントエンド | 素の HTML / CSS / JavaScript（`public/`）。ビルド不要 |
+| デプロイ | GitHub Actions（`.github/workflows/deploy.yml`）で `main` への push 時に `wrangler deploy` |
+
+### ファイル構成
+
+```
+Zero-cost-stock/
+├── src/
+│   └── index.js            # Cloudflare Worker（API + スクレイピング + 認証）
+├── public/
+│   ├── index.html          # フロントエンド HTML
+│   ├── styles.css          # レスポンシブ CSS
+│   └── app.js              # フロントエンド JavaScript
+├── migrations/             # D1 テーブル定義（マイグレーション）
+├── .github/workflows/
+│   └── deploy.yml          # 自動デプロイ
+├── wrangler.toml           # Cloudflare Workers 設定
+├── package.json
+└── README.md
+```
+
+### DB テーブル
+
+| テーブル | 用途 |
+|----------|------|
+| `stocks` | 購入検討 |
+| `waiting_stocks` | 恩株待ち |
+| `achieved_stocks` | 恩株化 |
+| `benefit_expirations` | 優待期限 |
+| `benefit_templates` | 優待メモのテンプレート（銘柄ごと） |
+| `watchlist` | ウォッチ |
+| `d1_migrations` | 適用済みマイグレーションの記録（wrangler が自動作成） |
+
+### API
+
+すべてログイン必須（未ログイン時は 401）。
+
+| メソッド | パス | 内容 |
+|----------|------|------|
+| GET / POST | `/api/stocks` | 購入検討の一覧・追加 |
+| PUT / DELETE | `/api/stocks/:id` | 購入検討の更新・削除 |
+| GET / POST | `/api/waiting-stocks` | 恩株待ちの一覧・追加 |
+| PUT / DELETE | `/api/waiting-stocks/:id` | 恩株待ちの更新・削除 |
+| GET / POST | `/api/achieved-stocks` | 恩株化の一覧・追加 |
+| PUT / DELETE | `/api/achieved-stocks/:id` | 恩株化の更新・削除 |
+| GET / POST | `/api/benefits` | 優待期限の一覧・追加 |
+| PUT / DELETE | `/api/benefits/:id` | 優待期限の更新・削除 |
+| GET | `/api/benefit-templates/:code` | 銘柄の優待メモテンプレート |
+| GET / POST | `/api/watchlist` | ウォッチの一覧・追加 |
+| PUT / DELETE | `/api/watchlist/:id` | ウォッチの更新・削除 |
+| GET | `/api/stock-data/:code` | 終値・会社名・利回り・配当予想を取得 |
+| GET | `/api/watch-info/:code` | 優待・配当の権利月を取得 |
+| GET | `/api/incentive-info/:code?shares=N` | 保有株数に応じた優待内容を取得 |
+
+ログイン関連は `/login`（GET: 画面 / POST: ログイン）と `/logout`（POST）。
+
+### データソース
+
+| データ | 取得元 |
+|--------|--------|
+| 終値・利回り | Yahoo Finance の JSON API（`query1.finance.yahoo.com`）。失敗時は Google Finance |
+| 会社名（日本語） | Yahoo!ファイナンス 銘柄ページ（`finance.yahoo.co.jp/quote/{CODE}.T`） |
+| 配当予想・配当月 | Yahoo!ファイナンス 配当ページ（`…/{CODE}.T/dividend`） |
+| 優待内容・優待月 | Yahoo!ファイナンス 優待ページ（`…/{CODE}.T/incentive`） |
+
+> **注意**: 取得元サイトの HTML 構造が変わると取得に失敗することがある。その場合は `src/index.js` の抽出処理を修正する。
+
+---
+
+## セットアップ・開発
 
 ### 前提条件
 
-- [Node.js](https://nodejs.org/) 18以上
+- [Node.js](https://nodejs.org/) 18 以上
 - [Cloudflare アカウント](https://dash.cloudflare.com/sign-up)（無料）
+
+> Windows の PowerShell で `npx` が「スクリプトの実行が無効」エラーになる場合は、`npx.cmd` と打つ（例: `npx.cmd wrangler login`）。
 
 ### 1. 依存パッケージのインストール
 
@@ -54,40 +186,17 @@ npm install
 npx wrangler login
 ```
 
-ブラウザが開くので Cloudflare アカウントで認証してください。
+### 3. D1 データベース（新規に環境を作る場合のみ）
 
-### 3. D1 データベースの作成
+既存の本番 DB（`wrangler.toml` の `database_id`）を使う場合は不要。新しく作る場合：
 
 ```bash
 npm run db:create
 ```
 
-実行すると以下のような出力が得られます：
+出力された `database_id` を `wrangler.toml` に設定する。
 
-```
-✅ Successfully created DB 'zero-cost-stock-db' in region APAC
-Created your new D1 database.
-
-[[d1_databases]]
-binding = "DB"
-database_name = "zero-cost-stock-db"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   ← これをコピー
-```
-
-### 4. wrangler.toml に database_id を設定
-
-`wrangler.toml` の `YOUR_DATABASE_ID_HERE` を上記の ID に置き換えてください：
-
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "zero-cost-stock-db"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  ← ここを変更
-```
-
-### 5. データベースの初期化（マイグレーション適用）
-
-テーブル定義は `migrations/` フォルダの SQL で管理しています（D1 マイグレーション）。
+### 4. マイグレーションの適用
 
 ```bash
 # 本番環境（Cloudflare）
@@ -97,19 +206,9 @@ npm run db:migrate
 npm run db:migrate:local
 ```
 
-#### テーブルや列を変更するとき
+### 5. ログインパスワードの設定
 
-1. `npm run db:migration:new -- 変更内容の名前`（例: `add_memo_to_stocks`）で `migrations/000N_….sql` を作る
-2. そのファイルに `ALTER TABLE …` などの SQL を書く（**既存のマイグレーションファイルは編集しない**）
-3. `npm run db:migrate:local` でローカルに適用して動作確認
-4. コードを push する前に `npm run db:migrate` で本番 DB に適用する
-5. `npm run db:migrations:status` で本番の未適用マイグレーションを確認できる
-
-> 列の追加は先に DB へ適用しておけば、古いコードが動いていても壊れません。列の削除・名前変更は、コードを先に直してから DB を変更してください。
-
-### 6. ログインパスワードの設定
-
-アプリはパスワードでログインしないと使えません（未設定のときは 503 で全アクセスを拒否します）。
+アプリはパスワードでログインしないと使えない（未設定のときは 503 で全アクセスを拒否する）。
 
 ```bash
 # 本番（Cloudflare の secret に保存。入力を求められるのでパスワードを打つ）
@@ -117,63 +216,58 @@ npx wrangler secret put APP_PASSWORD
 ```
 
 Cloudflare ダッシュボードの「Workers & Pages → zero-cost-stock → 設定 → 変数とシークレット」で、
-種類「シークレット」・名前 `APP_PASSWORD` として追加しても同じです。
+種類「シークレット」・名前 `APP_PASSWORD` として追加しても同じ。
 
-ローカル開発用は、リポジトリ直下に `.dev.vars`（git 管理外）を作って書きます：
+ローカル開発用は、リポジトリ直下に `.dev.vars`（git 管理外）を作って書く：
 
 ```
 APP_PASSWORD=ローカル用の任意のパスワード
 ```
 
-- ログインすると 30日間 Cookie で維持されます。右上の「ログアウト」で解除できます。
-- パスワードを変更すると、すべての端末のログインが無効になります。
+- ログインすると 30 日間 Cookie で維持される。右上の「ログアウト」で解除できる
+- パスワードを変更すると、すべての端末のログインが無効になる（データは消えない）
+- パスワードを忘れたら、同じコマンドで登録し直せばよい
 
-### 7. ローカルで動作確認
+### 6. ローカルで動作確認
 
 ```bash
 npm run dev
 ```
 
-`http://localhost:8787` でアプリが起動します。
+`http://localhost:8787` でアプリが起動する。
 
-### 8. 本番デプロイ
+### 7. デプロイ
+
+通常は `main` に push すれば GitHub Actions が自動でデプロイする（リポジトリの Secrets に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が必要）。
+手動でデプロイする場合：
 
 ```bash
 npm run deploy
 ```
 
-デプロイ後に表示される URL（例: `https://zero-cost-stock.your-subdomain.workers.dev`）がアプリの URL になります。PC・スマホ問わず同じ URL でアクセスできます。
-
 ---
 
-## ファイル構成
+## テーブルや列を変更するとき（マイグレーション）
 
-```
-Zero-cost-stock/
-├── src/
-│   └── index.js          # Cloudflare Worker（API + スクレイピング）
-├── public/
-│   ├── index.html        # フロントエンド HTML
-│   ├── styles.css        # レスポンシブ CSS
-│   └── app.js            # フロントエンド JavaScript
-├── migrations/           # D1 テーブル定義（マイグレーション）
-├── wrangler.toml         # Cloudflare Workers 設定
-├── package.json
-└── README.md
-```
+1. `npm run db:migration:new -- 変更内容の名前`（例: `add_memo_to_stocks`）で `migrations/000N_….sql` を作る
+2. そのファイルに `ALTER TABLE …` などの SQL を書く（**既存のマイグレーションファイルは編集しない**）
+3. `npm run db:migrate:local` でローカルに適用して動作確認
+4. コードを push する前に `npm run db:migrate` で本番 DB に適用する
+5. `npm run db:migrations:status` で本番の未適用マイグレーションを確認できる
 
----
+> 列の追加は先に DB へ適用しておけば、古いコードが動いていても壊れない。列の削除・名前変更は、コードを先に直してから DB を変更する。
 
-## データソース
+### npm スクリプト一覧
 
-| データ | ソース | URL |
-|--------|--------|-----|
-| 会社名 | Yahoo Finance Japan | `https://finance.yahoo.co.jp/quote/{CODE}.T` |
-| 終値 | Google Finance | `https://www.google.com/finance/quote/{CODE}:TYO` |
-| 利回り | Yahoo Finance Japan（配当ページ） | `https://finance.yahoo.co.jp/quote/{CODE}.T/dividend` |
-| 配当予想 | Yahoo Finance Japan（配当ページ） | 同上 |
-
-> **注意**: スクレイピング対象サイトの HTML 構造が変更された場合、`src/index.js` の正規表現パターンの修正が必要になることがあります。
+| コマンド | 内容 |
+|----------|------|
+| `npm run dev` | ローカル開発サーバー起動 |
+| `npm run deploy` | 本番へ手動デプロイ |
+| `npm run db:create` | D1 データベースを新規作成 |
+| `npm run db:migration:new -- 名前` | マイグレーションファイルを作成 |
+| `npm run db:migrate` | 本番 DB にマイグレーションを適用 |
+| `npm run db:migrate:local` | ローカル DB にマイグレーションを適用 |
+| `npm run db:migrations:status` | 本番 DB の未適用マイグレーションを表示 |
 
 ---
 
@@ -181,10 +275,10 @@ Zero-cost-stock/
 
 | リソース | 無料枠 | 想定使用量 |
 |----------|--------|-----------|
-| Workers リクエスト | 10万回/日 | 個人利用なら 1日数十回 |
-| D1 読み取り | 2500万回/日 | 個人利用なら問題なし |
-| D1 ストレージ | 5 GB | 銘柄数千件でも数MB程度 |
-| Workers CPU | 10ms/リクエスト（無料） | 通常のAPI操作で収まる |
+| Workers リクエスト | 10万回/日 | 個人利用なら 1日数十〜数百回 |
+| D1 読み取り | 500万行/日 | 個人利用なら問題なし |
+| D1 ストレージ | 5 GB | 銘柄数千件でも数 MB 程度 |
+| Workers CPU | 10ms/リクエスト（無料） | 通常の API 操作で収まる |
 
 → **通常の個人利用では無料枠内で運用可能（月額 ¥0）**
 
@@ -192,16 +286,21 @@ Zero-cost-stock/
 
 ## トラブルシューティング
 
+### 「APP_PASSWORD が設定されていません」と表示される
+
+本番の secret が未設定。上記「5. ログインパスワードの設定」の手順で設定する（再デプロイは不要）。
+
 ### データが「取得失敗」と表示される
 
-スクレイピング対象サイトへのアクセスが拒否されている可能性があります。
-- 時間をおいて「↻（更新）」ボタンをクリック
-- Yahoo Finance Japan・Google Finance のサイト構造変更の場合は `src/index.js` を修正
+取得元サイトへのアクセスが拒否されているか、サイトの構造が変わった可能性がある。
+- 時間をおいて「↻ 更新」ボタンを押す
+- 直らない場合は `src/index.js` の抽出処理を修正する
 
 ### ローカル開発時に DB エラーが出る
 
-`npm run db:migrate:local` を実行してローカル DB にマイグレーションを適用してください。
+`npm run db:migrate:local` を実行してローカル DB にマイグレーションを適用する。
 
 ### デプロイ後に 500 エラーになる
 
-`wrangler.toml` の `database_id` が正しく設定されているか確認してください。
+- `wrangler.toml` の `database_id` が正しいか確認する
+- 新しい列を使うコードを出したのに本番 DB へのマイグレーションを忘れていないか、`npm run db:migrations:status` で確認する
