@@ -395,6 +395,73 @@ tbody tr:hover td.input-col {
   color: var(--warn);
   font-size: 11px;
 }
+
+/* ─── データ取得の問題表示 ─────────────────────────────────────────────────── */
+.fetch-warn {
+  margin-left: 4px;
+  color: var(--warn);
+  font-size: 12px;
+  cursor: help;
+}
+.fetch-issues-btn {
+  margin-right: auto;
+  background: #fffbeb;
+  color: var(--warn);
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fetch-issues-btn:hover { background: #fef3c7; }
+.fetch-issues-panel {
+  background: #fffbeb;
+  border-bottom: 1px solid #fcd34d;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text);
+}
+.fetch-issues-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.fetch-issues-retry {
+  background: var(--surface);
+  color: var(--primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fetch-issues-retry:disabled { color: var(--text-muted); cursor: default; }
+.fetch-issues-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.fetch-issues-list li {
+  padding: 6px 0;
+  border-top: 1px dashed #fde68a;
+}
+.fetch-issues-list li:first-child { border-top: none; }
+.fetch-issues-list .fi-name { font-weight: 600; }
+.fetch-issues-list .fi-msg {
+  display: block;
+  color: var(--text-sub);
+  font-size: 12px;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
 .rise-rate {
   display: block;
   font-size: 10px;

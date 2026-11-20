@@ -127,8 +127,11 @@ function nameHtml(code, s, isLoad, hasErr) {
   if (hasErr) return errSpan();
   const yahooUrl     = `https://finance.yahoo.co.jp/quote/${code}.T`;
   const incentiveUrl = `${yahooUrl}/incentive`;
+  const warn = s?.issues?.length
+    ? `<span class="fetch-warn" title="${escHtml(s.issues.join('\n'))}">⚠</span>`
+    : '';
   return `<a class="company-link" href="${yahooUrl}" target="_blank" rel="noopener">${escHtml(s?.companyName || code)}</a>` +
-         `<a class="incentive-link" href="${incentiveUrl}" target="_blank" rel="noopener" title="株主優待">優待</a>`;
+         `<a class="incentive-link" href="${incentiveUrl}" target="_blank" rel="noopener" title="株主優待">優待</a>` + warn;
 }
 
 // ─── 計算：購入検討 ───────────────────────────────────────────────────────────
@@ -384,7 +387,8 @@ async function fetchScraped(code, force = false) {
   try {
     const data = await API.get(`/stock-data/${code}`);
     scraped[code] = data;
-    Cache.set(code, data);
+    // 取得に問題があった結果はキャッシュしない（次回の表示・更新で取り直す）
+    if (!data.issues?.length) Cache.set(code, data);
     $('lastUpdated').textContent = `最終更新: ${new Date().toLocaleTimeString('ja-JP')}`;
   } catch (e) {
     scraped[code] = { error: e.message };
@@ -394,7 +398,69 @@ async function fetchScraped(code, force = false) {
   }
 }
 
-function renderBoth() { renderPurchase(); renderWaiting(); renderAchieved(); renderBenefits(); renderWatchlist(); }
+function renderBoth() { renderPurchase(); renderWaiting(); renderAchieved(); renderBenefits(); renderWatchlist(); renderFetchIssues(); }
+
+// ─── データ取得の問題一覧 ─────────────────────────────────────────────────────
+
+function trackedCodes() {
+  return new Set([
+    ...stocks.map(s => s.code),
+    ...waitingStocks.map(s => s.code),
+    ...achievedStocks.map(s => s.code),
+    ...watchlist.map(s => s.code),
+  ]);
+}
+
+// 取得に失敗した（または一部の値が取れなかった）銘柄の一覧
+function collectFetchIssues() {
+  const list = [];
+  for (const code of trackedCodes()) {
+    const s = scraped[code];
+    if (!s) continue;
+    let messages = s.error ? [`取得エラー: ${s.error}`] : (s.issues || []);
+    if (!messages.length) continue;
+    // 再取得中は前回の結果の代わりに進行中であることを表示する
+    if (loading.has(code)) messages = ['再取得中…'];
+    const name = (s.companyName && s.companyName !== code)
+      ? s.companyName
+      : (watchlist.find(w => w.code === code)?.company_name || '');
+    list.push({ code, name, messages });
+  }
+  return list;
+}
+
+function renderFetchIssues() {
+  const btn = $('fetchIssuesBtn');
+  const panel = $('fetchIssuesPanel');
+  if (!btn || !panel) return;
+  const issues = collectFetchIssues();
+  if (!issues.length) {
+    btn.classList.add('hidden');
+    panel.classList.add('hidden');
+    btn.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  btn.classList.remove('hidden');
+  panel.classList.toggle('hidden', btn.getAttribute('aria-expanded') !== 'true');
+  btn.textContent = `⚠ 取得できない銘柄 ${issues.length}件`;
+  $('fetchIssuesList').innerHTML = issues.map(i => `
+    <li>
+      <span class="code-badge">${escHtml(i.code)}</span>
+      <span class="fi-name">${escHtml(i.name)}</span>
+      ${i.messages.map(m => `<span class="fi-msg">${escHtml(m)}</span>`).join('')}
+    </li>`).join('');
+  $('fetchIssuesRetryBtn').disabled = loading.size > 0;
+}
+
+$('fetchIssuesBtn').addEventListener('click', () => {
+  const panel = $('fetchIssuesPanel');
+  const open = panel.classList.toggle('hidden') === false;
+  $('fetchIssuesBtn').setAttribute('aria-expanded', String(open));
+});
+
+$('fetchIssuesRetryBtn').addEventListener('click', () => {
+  for (const { code } of collectFetchIssues()) { Cache.clear(code); fetchScraped(code, true); }
+});
 
 // ─── ドロワーアクションボタン生成 ─────────────────────────────────────────────
 

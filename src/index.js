@@ -59,6 +59,28 @@ function cleanCompanyName(raw) {
     .trim();
 }
 
+// 取得できなかった項目と、その理由を利用者向けの文にする。
+// src の各値は 'ok'（取得成功）、失敗理由の文字列、null（試していない）のいずれか。
+// 無配当の銘柄もあるため、配当は「配当ページ自体を取得できなかった」ときだけ問題とする。
+function collectIssues({ companyName, closingPrice }, src) {
+  const reason = (label, v) => `${label}: ${v === 'ok' ? '値が見つからない' : v}`;
+  const issues = [];
+  if (closingPrice === null) {
+    const parts = [reason('Yahoo API', src.yahooApi)];
+    if (src.google !== null) parts.push(reason('Google', src.google));
+    issues.push(`終値を取得できませんでした（${parts.join('、')}）`);
+  }
+  if (!companyName) {
+    issues.push(`会社名を取得できませんでした（${reason('Yahoo!ファイナンス', src.yahooBase)}）`);
+  }
+  if (src.yahooDividend !== 'ok') {
+    issues.push(`配当情報を取得できませんでした（配当ページ: ${src.yahooDividend}）`);
+  }
+  return issues;
+}
+
+const fetchFailReason = e => (e && e.name === 'AbortError') ? 'タイムアウト' : '通信エラー';
+
 async function scrapeStock(code) {
   // ── Step1: Yahoo Finance グローバル JSON API（最も信頼性が高い）─────────────
   // 終値・会社名・配当利回りを JSON で取得
@@ -66,6 +88,8 @@ async function scrapeStock(code) {
   let closingPrice = null;
   let yieldValue = null;
   let dividendPerShare = null;
+  // 取得元ごとの結果（失敗時に理由を表示するため）
+  const src = { yahooApi: null, yahooDividend: null, yahooBase: null, google: null };
 
   try {
     const apiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${code}.T?interval=1d&range=1d`;
@@ -80,6 +104,7 @@ async function scrapeStock(code) {
     if (apiRes.ok) {
       const data = await apiRes.json();
       const meta = data?.chart?.result?.[0]?.meta;
+      src.yahooApi = meta ? 'ok' : 'データなし';
       if (meta) {
         closingPrice      = meta.regularMarketPrice       ?? meta.previousClose ?? null;
         // 会社名は英語になるため、Yahoo Finance Japan から別途取得する
@@ -88,15 +113,19 @@ async function scrapeStock(code) {
                             ? meta.trailingAnnualDividendYield * 100
                             : null;
       }
+    } else {
+      src.yahooApi = `HTTP ${apiRes.status}`;
     }
-  } catch {
+  } catch (e) {
     // JSON API 失敗 → 次のフォールバックへ
+    src.yahooApi = fetchFailReason(e);
   }
 
   // ── Step2: Yahoo Finance Japan 配当ページ（配当予想・利回りの精度向上）────
   try {
     const divUrl = `https://finance.yahoo.co.jp/quote/${code}.T/dividend`;
     const divRes = await fetch(divUrl, { headers: BROWSER_HEADERS });
+    src.yahooDividend = divRes.ok ? 'ok' : `HTTP ${divRes.status}`;
     if (divRes.ok) {
       const html = await divRes.text();
 
@@ -133,8 +162,8 @@ async function scrapeStock(code) {
         }
       }
     }
-  } catch {
-    // フォールバック失敗は無視
+  } catch (e) {
+    src.yahooDividend = fetchFailReason(e);
   }
 
   // ── Step3: Yahoo Finance Japan ベースページから日本語会社名を取得 ───────────
@@ -144,6 +173,7 @@ async function scrapeStock(code) {
         `https://finance.yahoo.co.jp/quote/${code}.T`,
         { headers: BROWSER_HEADERS }
       );
+      src.yahooBase = baseRes.ok ? 'ok' : `HTTP ${baseRes.status}`;
       if (baseRes.ok) {
         const html = await baseRes.text();
         const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -160,8 +190,8 @@ async function scrapeStock(code) {
           if (candidate) companyName = candidate;
         }
       }
-    } catch {
-      // フォールバック失敗は無視
+    } catch (e) {
+      src.yahooBase = fetchFailReason(e);
     }
   }
 
@@ -172,6 +202,7 @@ async function scrapeStock(code) {
         `https://www.google.com/finance/quote/${code}:TYO`,
         { headers: BROWSER_HEADERS }
       );
+      src.google = gRes.ok ? 'ok' : `HTTP ${gRes.status}`;
       if (gRes.ok) {
         const html = await gRes.text();
         const m = html.match(/<div class="YMlKec fxKbKc">(.*?)<\/div>/);
@@ -185,8 +216,8 @@ async function scrapeStock(code) {
           if (m2) closingPrice = parseFloat(m2[1]);
         }
       }
-    } catch {
-      // フォールバック失敗は無視
+    } catch (e) {
+      src.google = fetchFailReason(e);
     }
   }
 
@@ -195,6 +226,7 @@ async function scrapeStock(code) {
     closingPrice,
     yieldValue,
     dividendPerShare,
+    issues: collectIssues({ companyName, closingPrice }, src),
     fetchedAt: new Date().toISOString(),
   };
 }

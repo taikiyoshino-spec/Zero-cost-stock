@@ -43,7 +43,16 @@
 
   <!-- 最終更新時刻 -->
   <div class="sub-bar">
+    <button type="button" id="fetchIssuesBtn" class="fetch-issues-btn hidden" aria-expanded="false" aria-controls="fetchIssuesPanel"></button>
     <span id="lastUpdated" class="last-updated"></span>
+  </div>
+  <!-- データ取得に失敗した銘柄の一覧（⚠ ボタンで開閉） -->
+  <div id="fetchIssuesPanel" class="fetch-issues-panel hidden">
+    <div class="fetch-issues-head">
+      <span>データを取得できなかった銘柄</span>
+      <button type="button" id="fetchIssuesRetryBtn" class="fetch-issues-retry">↻ まとめて再取得</button>
+    </div>
+    <ul id="fetchIssuesList" class="fetch-issues-list"></ul>
   </div>
 
   <!-- ══ 購入検討タブ ══ -->
