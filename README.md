@@ -97,7 +97,7 @@
 | バックエンド | Cloudflare Workers（`src/index.js`）。API・スクレイピング・ログイン認証 |
 | DB | Cloudflare D1（SQLite）。テーブル定義は `migrations/` で管理 |
 | フロントエンド | 素の HTML / CSS / JavaScript（`public/`）。ビルド不要 |
-| デプロイ | GitHub Actions（`.github/workflows/deploy.yml`）で `main` への push 時に `wrangler deploy` |
+| デプロイ | GitHub Actions（`.github/workflows/deploy.yml`）で `main` への push 時に D1 マイグレーション適用 → `wrangler deploy` |
 
 ### ファイル構成
 
@@ -238,7 +238,9 @@ npm run dev
 
 ### 7. デプロイ
 
-通常は `main` に push すれば GitHub Actions が自動でデプロイする（リポジトリの Secrets に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が必要）。
+通常は `main` に push すれば GitHub Actions が自動で「D1 マイグレーション適用 → デプロイ」を行う。
+リポジトリの Secrets に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が必要で、API トークンには
+「Workers Scripts: 編集」と「D1: 編集」の権限が要る。
 手動でデプロイする場合：
 
 ```bash
@@ -252,10 +254,11 @@ npm run deploy
 1. `npm run db:migration:new -- 変更内容の名前`（例: `add_memo_to_stocks`）で `migrations/000N_….sql` を作る
 2. そのファイルに `ALTER TABLE …` などの SQL を書く（**既存のマイグレーションファイルは編集しない**）
 3. `npm run db:migrate:local` でローカルに適用して動作確認
-4. コードを push する前に `npm run db:migrate` で本番 DB に適用する
-5. `npm run db:migrations:status` で本番の未適用マイグレーションを確認できる
+4. `main` に push すると、GitHub Actions が **デプロイの前に** 本番 DB へマイグレーションを自動適用する（失敗したらデプロイは行われない）
+5. `npm run db:migrations:status` で本番の未適用マイグレーションを確認できる。手動で適用したいときは `npm run db:migrate`
 
-> 列の追加は先に DB へ適用しておけば、古いコードが動いていても壊れない。列の削除・名前変更は、コードを先に直してから DB を変更する。
+> 自動適用は「DB 更新 → コードのデプロイ」の順なので、列の追加はそのまま 1 回の push で安全に行える。
+> 列の削除・名前変更は、まずその列を使わないコードを push し、次の push でマイグレーションを入れる（2 回に分ける）。
 
 ### npm スクリプト一覧
 
