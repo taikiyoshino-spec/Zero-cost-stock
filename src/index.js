@@ -5,6 +5,7 @@
  */
 
 import { runOnkabuCheck, sendLine } from './onkabu-notify.js';
+import { tseClosedReason } from './market-calendar.js';
 
 const BROWSER_HEADERS = {
   'User-Agent':
@@ -1001,6 +1002,12 @@ export default {
 
   // Cron Trigger（wrangler.toml の [triggers]）：取引時間中 30 分ごとに恩株売値の到達を確認
   async scheduled(event, env, ctx) {
+    // 東証の休業日（祝日・年末年始）は株価が動かないので何もしない（土日は cron 側で除外済み）
+    const closed = tseClosedReason(new Date(event.scheduledTime));
+    if (closed) {
+      console.log('onkabu-check skipped:', closed);
+      return;
+    }
     ctx.waitUntil(
       runOnkabuCheck(env, notifyDeps)
         .then(r => console.log('onkabu-check', JSON.stringify(r)))
