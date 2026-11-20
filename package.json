@@ -6,8 +6,10 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create zero-cost-stock-db",
-    "db:init": "wrangler d1 execute zero-cost-stock-db --file=schema.sql",
-    "db:init:local": "wrangler d1 execute zero-cost-stock-db --local --file=schema.sql"
+    "db:migration:new": "wrangler d1 migrations create zero-cost-stock-db",
+    "db:migrate": "wrangler d1 migrations apply zero-cost-stock-db --remote",
+    "db:migrate:local": "wrangler d1 migrations apply zero-cost-stock-db --local",
+    "db:migrations:status": "wrangler d1 migrations list zero-cost-stock-db --remote"
   },
   "devDependencies": {
     "wrangler": "^4.95.0"

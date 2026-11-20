@@ -85,15 +85,27 @@ database_name = "zero-cost-stock-db"
 database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  ← ここを変更
 ```
 
-### 5. データベースの初期化
+### 5. データベースの初期化（マイグレーション適用）
+
+テーブル定義は `migrations/` フォルダの SQL で管理しています（D1 マイグレーション）。
 
 ```bash
 # 本番環境（Cloudflare）
-npm run db:init
+npm run db:migrate
 
 # ローカル開発環境
-npm run db:init:local
+npm run db:migrate:local
 ```
+
+#### テーブルや列を変更するとき
+
+1. `npm run db:migration:new -- 変更内容の名前`（例: `add_memo_to_stocks`）で `migrations/000N_….sql` を作る
+2. そのファイルに `ALTER TABLE …` などの SQL を書く（**既存のマイグレーションファイルは編集しない**）
+3. `npm run db:migrate:local` でローカルに適用して動作確認
+4. コードを push する前に `npm run db:migrate` で本番 DB に適用する
+5. `npm run db:migrations:status` で本番の未適用マイグレーションを確認できる
+
+> 列の追加は先に DB へ適用しておけば、古いコードが動いていても壊れません。列の削除・名前変更は、コードを先に直してから DB を変更してください。
 
 ### 6. ログインパスワードの設定
 
@@ -144,7 +156,7 @@ Zero-cost-stock/
 │   ├── index.html        # フロントエンド HTML
 │   ├── styles.css        # レスポンシブ CSS
 │   └── app.js            # フロントエンド JavaScript
-├── schema.sql            # D1 テーブル定義
+├── migrations/           # D1 テーブル定義（マイグレーション）
 ├── wrangler.toml         # Cloudflare Workers 設定
 ├── package.json
 └── README.md
@@ -188,7 +200,7 @@ Zero-cost-stock/
 
 ### ローカル開発時に DB エラーが出る
 
-`npm run db:init:local` を実行してローカル DB を初期化してください。
+`npm run db:migrate:local` を実行してローカル DB にマイグレーションを適用してください。
 
 ### デプロイ後に 500 エラーになる
 

@@ -14,3 +14,4 @@ run_worker_first = true
 binding = "DB"
 database_name = "zero-cost-stock-db"
 database_id = "c6b76402-661d-4d94-8356-36802d91befd"
+migrations_dir = "migrations"
