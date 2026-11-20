@@ -102,6 +102,7 @@ body {
   transition: background .15s;
 }
 .btn-outline:hover { background: rgba(255,255,255,.15); }
+.logout-form { display: flex; margin: 0; }
 
 /* ─── サブバー ──────────────────────────────────────────────────────────────── */
 .sub-bar {

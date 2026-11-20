@@ -95,7 +95,28 @@ npm run db:init
 npm run db:init:local
 ```
 
-### 6. ローカルで動作確認
+### 6. ログインパスワードの設定
+
+アプリはパスワードでログインしないと使えません（未設定のときは 503 で全アクセスを拒否します）。
+
+```bash
+# 本番（Cloudflare の secret に保存。入力を求められるのでパスワードを打つ）
+npx wrangler secret put APP_PASSWORD
+```
+
+Cloudflare ダッシュボードの「Workers & Pages → zero-cost-stock → 設定 → 変数とシークレット」で、
+種類「シークレット」・名前 `APP_PASSWORD` として追加しても同じです。
+
+ローカル開発用は、リポジトリ直下に `.dev.vars`（git 管理外）を作って書きます：
+
+```
+APP_PASSWORD=ローカル用の任意のパスワード
+```
+
+- ログインすると 30日間 Cookie で維持されます。右上の「ログアウト」で解除できます。
+- パスワードを変更すると、すべての端末のログインが無効になります。
+
+### 7. ローカルで動作確認
 
 ```bash
 npm run dev
@@ -103,7 +124,7 @@ npm run dev
 
 `http://localhost:8787` でアプリが起動します。
 
-### 7. 本番デプロイ
+### 8. 本番デプロイ
 
 ```bash
 npm run deploy

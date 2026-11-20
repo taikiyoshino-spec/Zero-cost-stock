@@ -3,12 +3,6 @@
  * REST API + Yahoo Finance Japan / Google Finance スクレイピングプロキシ
  */
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
-
 const BROWSER_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -22,7 +16,7 @@ const BROWSER_HEADERS = {
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...CORS },
+    headers: { 'Content-Type': 'application/json' },
   });
 }
 
@@ -759,6 +753,117 @@ async function handleApi(request, env, path) {
   return err('Not Found', 404);
 }
 
+// ─── 認証（APP_PASSWORD による簡易ログイン）──────────────────────────────────
+
+const AUTH_COOKIE = 'onkabu_auth';
+const AUTH_MAX_AGE = 30 * 24 * 60 * 60; // 30日
+
+async function hmacHex(secret, message) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// 長さや内容で処理時間が変わらないよう、両方を HMAC してから比較する
+async function safeEqual(a, b) {
+  const k = 'onkabu-compare';
+  const [ha, hb] = await Promise.all([hmacHex(k, a), hmacHex(k, b)]);
+  let diff = 0;
+  for (let i = 0; i < ha.length; i++) diff |= ha.charCodeAt(i) ^ hb.charCodeAt(i);
+  return diff === 0;
+}
+
+// トークン = 有効期限.署名。パスワードを変えると既存のログインはすべて無効になる
+async function makeToken(env) {
+  const exp = Math.floor(Date.now() / 1000) + AUTH_MAX_AGE;
+  return `${exp}.${await hmacHex(env.APP_PASSWORD, `v1:${exp}`)}`;
+}
+
+async function isAuthenticated(request, env) {
+  const cookie = request.headers.get('Cookie') || '';
+  const m = cookie.match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE}=([^;]+)`));
+  if (!m) return false;
+  const [expStr, sig] = m[1].split('.');
+  const exp = Number(expStr);
+  if (!exp || !sig || exp < Date.now() / 1000) return false;
+  return safeEqual(sig, await hmacHex(env.APP_PASSWORD, `v1:${exp}`));
+}
+
+function authCookie(token) {
+  return `${AUTH_COOKIE}=${token}; Path=/; Max-Age=${AUTH_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function clearAuthCookie() {
+  return `${AUTH_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function redirect(location, setCookie) {
+  const headers = { Location: location, 'Cache-Control': 'no-store' };
+  if (setCookie) headers['Set-Cookie'] = setCookie;
+  return new Response(null, { status: 303, headers });
+}
+
+async function handleLogin(request, env) {
+  let password = '';
+  try {
+    const form = await request.formData();
+    password = String(form.get('password') || '');
+  } catch { /* 空として扱う */ }
+
+  if (password && (await safeEqual(password, env.APP_PASSWORD))) {
+    return redirect('/', authCookie(await makeToken(env)));
+  }
+  // 総当たり対策として失敗時は1秒待たせる
+  await new Promise(r => setTimeout(r, 1000));
+  return loginPage('パスワードが違います', 401);
+}
+
+function loginPage(message = '', status = 200) {
+  const html = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>ログイン - 恩株管理ツール</title>
+  <style>
+    :root { --primary:#1d4ed8; --bg:#f1f5f9; --surface:#fff; --border:#cbd5e1; --text:#0f172a; --sub:#475569; --danger:#dc2626; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+      padding:16px; background:var(--bg); color:var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif; }
+    form { width:100%; max-width:340px; background:var(--surface); border-radius:12px; padding:28px 24px;
+      box-shadow:0 4px 16px rgba(0,0,0,.08); }
+    h1 { font-size:18px; margin:0 0 4px; }
+    p.sub { font-size:13px; color:var(--sub); margin:0 0 20px; }
+    label { display:block; font-size:13px; color:var(--sub); margin-bottom:6px; }
+    input { width:100%; font-size:16px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; }
+    input:focus { outline:2px solid var(--primary); outline-offset:-1px; border-color:transparent; }
+    button { width:100%; margin-top:16px; padding:11px; font-size:15px; font-weight:600; color:#fff;
+      background:var(--primary); border:0; border-radius:8px; cursor:pointer; }
+    .error { color:var(--danger); font-size:13px; margin:12px 0 0; }
+  </style>
+</head>
+<body>
+  <form method="POST" action="/login">
+    <h1>恩株管理ツール</h1>
+    <p class="sub">パスワードを入力してください</p>
+    <label for="password">パスワード</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+    ${message ? `<p class="error">${message}</p>` : ''}
+    <button type="submit">ログイン</button>
+  </form>
+</body>
+</html>`;
+  return new Response(html, {
+    status,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
+
 // ─── エントリポイント ──────────────────────────────────────────────────────────
 
 export default {
@@ -766,8 +871,25 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: CORS });
+    // パスワード未設定のときは誰も入れないようにする（設定漏れで公開状態にならないように）
+    if (!env.APP_PASSWORD) {
+      return new Response(
+        'APP_PASSWORD が設定されていません。npx wrangler secret put APP_PASSWORD で設定してください。',
+        { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } },
+      );
+    }
+
+    if (path === '/login') {
+      if (request.method === 'POST') return handleLogin(request, env);
+      return loginPage();
+    }
+    if (path === '/logout' && request.method === 'POST') {
+      return redirect('/login', clearAuthCookie());
+    }
+
+    if (!(await isAuthenticated(request, env))) {
+      if (path.startsWith('/api/')) return err('ログインが必要です', 401);
+      return redirect('/login');
     }
 
     if (path.startsWith('/api/')) {

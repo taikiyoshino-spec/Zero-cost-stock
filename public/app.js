@@ -10,6 +10,11 @@ const API = {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body !== undefined) opts.body = JSON.stringify(body);
     const res = await fetch('/api' + path, opts);
+    if (res.status === 401) {
+      // ログイン期限切れ → ログイン画面へ
+      location.href = '/login';
+      throw new Error('ログインが必要です');
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'APIエラーが発生しました');
     return data;

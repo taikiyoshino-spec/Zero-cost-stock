@@ -7,6 +7,8 @@ preview_urls = false
 [assets]
 directory = "./public"
 binding = "ASSETS"
+# 静的ファイルも Worker を通してログイン確認する
+run_worker_first = true
 
 [[d1_databases]]
 binding = "DB"
